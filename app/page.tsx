@@ -153,8 +153,7 @@ export default function DashboardPage() {
                 onClick={() => handleModuleChange(mod.id)} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeModule === mod.id ? `bg-${mod.color}-500/20 text-${mod.color}-400 border border-${mod.color}-500/30` : 'text-slate-400 hover:text-white'}`}
               >
-                <mod.icon className="w-4 h-4" /> {mod.name.split(' ')[0]}
-              </button>
+                <mod.icon className="w-4 h-4" /> {mod.name}              </button>
             ))}
           </div>
 
