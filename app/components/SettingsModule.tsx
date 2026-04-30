@@ -2,29 +2,31 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { User, LayoutGrid, LogOut, Camera, MonitorSmartphone, Receipt, CalendarDays, Share2, Compass, Palette, Briefcase, Hammer, UserCheck } from 'lucide-react';
+// TADY BYLA CHYBA - chybělo tu FileSignature v seznamu ikon:
+import { User, LayoutGrid, LogOut, Camera, MonitorSmartphone, Receipt, CalendarDays, Share2, Compass, Palette, Briefcase, Hammer, UserCheck, FileSignature } from 'lucide-react';
 
 const MODULES_INFO = [
   { id: 'web', name: 'Webové projekty', icon: MonitorSmartphone, color: 'blue', description: 'Správa webových zakázek, tasky, předávací protokoly a hlídání termínů.' },
   { id: 'photo', name: 'Fotografické zakázky', icon: Camera, color: 'purple', description: 'Organizace focení, svateb, klientské galerie a výběry fotek.' },
+  { id: 'quotes', name: 'Cenové nabídky', icon: FileSignature, color: 'indigo', description: 'Vytváření a odesílání profesionálních nabídek klientům.' },
   { id: 'billing', name: 'Fakturace', icon: Receipt, color: 'amber', description: 'Vystavování faktur, evidence příjmů a sledování čekajících plateb.' },
   { id: 'bookings', name: 'Schůzky', icon: CalendarDays, color: 'emerald', description: 'Rezervace konzultací z webu a chytrá synchronizace s Google Kalendářem.' },
   { id: 'content', name: 'Obsah & Sítě', icon: Share2, color: 'pink', description: 'Plánovač příspěvků pro sociální sítě, Kanban nástěnka a checklisty.' }
 ];
 
 const personas = [
-  { id: 'kreativec', title: 'Kreativec', desc: 'Fotograf, grafik nebo markeťák. Zaměřeno na projekty a obsah.', icon: Palette, modules: ['web', 'photo', 'content', 'billing'], color: 'bg-purple-500/10 border-purple-500/30 text-purple-400' },
-  { id: 'manazer', title: 'Manažer / Freelancer', desc: 'Řízení projektů, úkolů a hlídání cashflow.', icon: Briefcase, modules: ['web', 'billing', 'expenses'], color: 'bg-blue-500/10 border-blue-500/30 text-blue-400' },
-  { id: 'remeslnik', title: 'Řemeslník', desc: 'Správa zakázek, výdajů a rychlá fakturace z terénu.', icon: Hammer, modules: ['photo', 'billing', 'expenses', 'bookings'], color: 'bg-amber-500/10 border-amber-500/30 text-amber-400' },
-  { id: 'sluzby', title: 'Služby a Konzultace', desc: 'Rezervace termínů, správa klientů a plánování.', icon: UserCheck, modules: ['bookings', 'photo', 'billing', 'content'], color: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' },
-  { id: 'all', title: 'Plná palba (Vše)', desc: 'Chci mít přístup ke všem modulům najednou.', icon: LayoutGrid, modules: ['web', 'photo', 'billing', 'bookings', 'content'], color: 'bg-slate-500/10 border-slate-500/30 text-slate-400' }
+  { id: 'kreativec', title: 'Kreativec', desc: 'Fotograf, grafik nebo markeťák. Zaměřeno na projekty a obsah.', icon: Palette, modules: ['web', 'photo', 'content', 'billing', 'quotes'], color: 'bg-purple-500/10 border-purple-500/30 text-purple-400' },
+  { id: 'manazer', title: 'Manažer / Freelancer', desc: 'Řízení projektů, úkolů a hlídání cashflow.', icon: Briefcase, modules: ['web', 'billing', 'expenses', 'quotes'], color: 'bg-blue-500/10 border-blue-500/30 text-blue-400' },
+  { id: 'remeslnik', title: 'Řemeslník', desc: 'Správa zakázek, výdajů a rychlá fakturace z terénu.', icon: Hammer, modules: ['photo', 'billing', 'expenses', 'bookings', 'quotes'], color: 'bg-amber-500/10 border-amber-500/30 text-amber-400' },
+  { id: 'sluzby', title: 'Služby a Konzultace', desc: 'Rezervace termínů, správa klientů a plánování.', icon: UserCheck, modules: ['bookings', 'photo', 'billing', 'content', 'quotes'], color: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' },
+  { id: 'all', title: 'Plná palba (Vše)', desc: 'Chci mít přístup ke všem modulům najednou.', icon: LayoutGrid, modules: ['web', 'photo', 'quotes', 'billing', 'bookings', 'content'], color: 'bg-slate-500/10 border-slate-500/30 text-slate-400' }
 ];
 
 interface SettingsProps {
   enabledModules: string[];
   toggleModule: (id: string) => void;
   onLogout: () => void;
-  userId: string | null; // Přidáno ID uživatele
+  userId: string | null;
 }
 
 export default function SettingsModule({ enabledModules, toggleModule, onLogout, userId }: SettingsProps) {
@@ -44,7 +46,7 @@ export default function SettingsModule({ enabledModules, toggleModule, onLogout,
       .eq('id', userId);
 
     if (!error) {
-      window.location.reload(); // Refreshne stránku pro okamžité propsání modulů
+      window.location.reload(); 
     }
     setLoading(null);
   };

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Camera, MonitorSmartphone, Receipt, Menu, X, Home, CalendarDays, Share2, Loader2 } from 'lucide-react'; 
+import { Camera, MonitorSmartphone, Receipt, Menu, X, Home, CalendarDays, Share2, Loader2, FileSignature } from 'lucide-react'; 
 
 import PhotoModule from './components/PhotoModule';
 import WebModule from './components/WebModule';
@@ -11,14 +11,16 @@ import HomeModule from './components/HomeModule';
 import BookingModule from './components/BookingModule';
 import ContentModule from './components/ContentModule';
 import SettingsModule from './components/SettingsModule';
-import Onboarding from './components/Onboarding'; // <-- PŘIDÁN IMPORT ONBOARDINGU
+import Onboarding from './components/Onboarding';
+import QuotesModule from './components/QuotesModule'; // <-- Import Cenových nabídek
 
 const AVAILABLE_MODULES = [
   { id: 'web', name: 'Webové projekty', icon: MonitorSmartphone, color: 'blue' },
   { id: 'photo', name: 'Fotografické zakázky', icon: Camera, color: 'purple' },
   { id: 'billing', name: 'Fakturace', icon: Receipt, color: 'amber' },
   { id: 'bookings', name: 'Schůzky', icon: CalendarDays, color: 'emerald' },
-  { id: 'content', name: 'Obsah & Sítě', icon: Share2, color: 'pink' }
+  { id: 'content', name: 'Obsah & Sítě', icon: Share2, color: 'pink' }, // <-- TADY CHYBĚLA ČÁRKA
+  { id: 'quotes', name: 'Cenové nabídky', icon: FileSignature, color: 'indigo' } // <-- Náš nový modul
 ];
 
 export default function DashboardPage() {
@@ -29,7 +31,6 @@ export default function DashboardPage() {
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   
-  // <-- PŘIDANÉ STAVY PRO ONBOARDING -->
   const [userProfile, setUserProfile] = useState<any>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -45,7 +46,6 @@ export default function DashboardPage() {
     if (user) {
       setUserId(user.id);
       
-      // Přidali jsme načtení 'user_type' a 'id' do dotazu
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('id, active_modules, user_type') 
@@ -53,18 +53,17 @@ export default function DashboardPage() {
         .single();
 
       if (profile) {
-        setUserProfile(profile); // Uložíme profil do stavu pro Onboarding
+        setUserProfile(profile);
         
         if (profile.active_modules) {
           setEnabledModules(profile.active_modules);
         }
         
-        // Zkontrolujeme, zda uživatel má vyplněný typ. Pokud ne, ukážeme Onboarding.
         if (!profile.user_type || profile.user_type === '') {
           setShowOnboarding(true);
         }
       } else if (error) {
-        setEnabledModules(['web', 'photo', 'billing', 'bookings', 'content']);
+        setEnabledModules(['web', 'photo', 'billing', 'bookings', 'content', 'quotes']);
       }
     }
 
@@ -118,29 +117,25 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-200 font-sans pb-20">
       
-      {/* PŘIDÁN ONBOARDING OVERLAY */}
       {showOnboarding && userProfile && (
         <Onboarding 
           userId={userProfile.id} 
           onComplete={() => {
             setShowOnboarding(false);
-            window.location.reload(); // Refreshne stránku, aby se načetly správné moduly
+            window.location.reload(); 
           }} 
         />
       )}
 
-      {/* NAVIGACE */}
       <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-4 flex justify-between items-center gap-4">
           
-          {/* LOGO */}
           <div className="flex items-center cursor-pointer" onClick={() => handleModuleChange('home')}>
             <span className="text-xl font-black text-white tracking-wide italic">
               INDIE<span className="text-emerald-500">HUB</span>
             </span>
           </div>
           
-          {/* DESKTOPOVÉ MENU */}
           <div className="hidden lg:flex gap-2 bg-slate-900 p-1 rounded-xl border border-slate-800">
             <button onClick={() => handleModuleChange('home')} className={`p-2 px-3 rounded-lg ${activeModule === 'home' ? 'bg-slate-800 text-white border-slate-700' : 'text-slate-400 hover:text-white'}`}>
               <Home className="w-5 h-5" />
@@ -153,11 +148,11 @@ export default function DashboardPage() {
                 onClick={() => handleModuleChange(mod.id)} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeModule === mod.id ? `bg-${mod.color}-500/20 text-${mod.color}-400 border border-${mod.color}-500/30` : 'text-slate-400 hover:text-white'}`}
               >
-                <mod.icon className="w-4 h-4" /> {mod.name}              </button>
+                <mod.icon className="w-4 h-4" /> {mod.name}
+              </button>
             ))}
           </div>
 
-          {/* PRAVÁ STRANA: AVATAR A MENU TLACITKO */}
           <div className="flex items-center gap-4">
              <button 
                onClick={() => handleModuleChange('settings')}
@@ -172,7 +167,7 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      {/* MOBILNÍ MENU */}
+      {/* MOBILNÍ MENU S PŘIDANÝMI NABÍDKAMI */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-xl flex flex-col p-6 animate-in fade-in duration-200 lg:hidden overflow-y-auto">
           <div className="flex justify-between items-center mb-8">
@@ -182,6 +177,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4 pb-10">
             {enabledModules.includes('web') && <button onClick={() => handleModuleChange('web')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'web' ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><MonitorSmartphone className="w-6 h-6" /> Webové projekty</button>}
             {enabledModules.includes('photo') && <button onClick={() => handleModuleChange('photo')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'photo' ? 'bg-purple-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><Camera className="w-6 h-6" /> Fotografické zakázky</button>}
+            {enabledModules.includes('quotes') && <button onClick={() => handleModuleChange('quotes')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'quotes' ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><FileSignature className="w-6 h-6" /> Cenové nabídky</button>}
             {enabledModules.includes('billing') && <button onClick={() => handleModuleChange('billing')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'billing' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><Receipt className="w-6 h-6" /> Fakturace</button>}
             {enabledModules.includes('bookings') && <button onClick={() => handleModuleChange('bookings')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'bookings' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><CalendarDays className="w-6 h-6" /> Schůzky</button>}
             {enabledModules.includes('content') && <button onClick={() => handleModuleChange('content')} className={`p-5 rounded-2xl font-black text-xl text-left flex items-center gap-4 transition-colors ${activeModule === 'content' ? 'bg-pink-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}><Share2 className="w-6 h-6" /> Obsah & Sítě</button>}
@@ -189,12 +185,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* OBSAH */}
+      {/* OBSAH - TADY CHYBĚLO VYKRESLENÍ MODULU */}
       <div className="max-w-7xl mx-auto px-4 sm:px-8 py-10">
         {activeModule === 'home' && <HomeModule />}
         {activeModule === 'billing' && enabledModules.includes('billing') && <BillingModule />}
         {activeModule === 'web' && enabledModules.includes('web') && <WebModule />}
         {activeModule === 'photo' && enabledModules.includes('photo') && <PhotoModule />}
+        {activeModule === 'quotes' && enabledModules.includes('quotes') && <QuotesModule />}
         {activeModule === 'bookings' && enabledModules.includes('bookings') && <BookingModule />}
         {activeModule === 'content' && enabledModules.includes('content') && <ContentModule />}
         

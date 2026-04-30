@@ -4,14 +4,14 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Palette, Briefcase, Hammer, UserCheck } from 'lucide-react';
 
-// Definice person
+// ZDE JE AKTUALIZOVANÝ SEZNAM PERSON (přidáno 'quotes')
 const personas = [
   {
     id: 'kreativec',
     title: 'Kreativec',
     desc: 'Fotograf, grafik nebo markeťák. Zaměřeno na projekty a obsah.',
     icon: Palette,
-    modules: ['web', 'photo', 'content', 'billing'],
+    modules: ['web', 'photo', 'content', 'billing', 'quotes'],
     color: 'bg-purple-500/10 border-purple-500/30 text-purple-400'
   },
   {
@@ -19,7 +19,7 @@ const personas = [
     title: 'Manažer / Freelancer',
     desc: 'Řízení projektů, úkolů a hlídání cashflow.',
     icon: Briefcase,
-    modules: ['web', 'billing', 'expenses'],
+    modules: ['web', 'billing', 'expenses', 'quotes'],
     color: 'bg-blue-500/10 border-blue-500/30 text-blue-400'
   },
   {
@@ -27,7 +27,7 @@ const personas = [
     title: 'Řemeslník',
     desc: 'Správa zakázek, výdajů a rychlá fakturace z terénu.',
     icon: Hammer,
-    modules: ['photo', 'billing', 'expenses', 'bookings'],
+    modules: ['photo', 'billing', 'expenses', 'bookings', 'quotes'],
     color: 'bg-amber-500/10 border-amber-500/30 text-amber-400'
   },
   {
@@ -35,7 +35,7 @@ const personas = [
     title: 'Služby a Konzultace',
     desc: 'Rezervace termínů, správa klientů a plánování.',
     icon: UserCheck,
-    modules: ['bookings', 'photo', 'billing', 'content'],
+    modules: ['bookings', 'photo', 'billing', 'content', 'quotes'],
     color: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
   }
 ];
@@ -60,15 +60,15 @@ export default function Onboarding({ userId, onComplete }: { userId: string, onC
     setLoading(null);
   };
 
-  // Nová funkce pro přeskočení
   const handleSkip = async () => {
     setLoading('skip');
     
     const { error } = await supabase
       .from('profiles')
       .update({ 
-        user_type: 'all', // Uložíme jako 'all', aby se okno už neukazovalo
-        active_modules: ['web', 'photo', 'billing', 'bookings', 'content'] // Zapneme všechny hlavní moduly
+        user_type: 'all', 
+        // ZDE PŘIDÁNO 'quotes' PRO TLAČÍTKO PŘESKOČIT
+        active_modules: ['web', 'photo', 'billing', 'bookings', 'content', 'quotes'] 
       })
       .eq('id', userId);
 
@@ -119,7 +119,6 @@ export default function Onboarding({ userId, onComplete }: { userId: string, onC
           ))}
         </div>
         
-        {/* Přidaná sekce pro přeskočení a spodní text */}
         <div className="flex flex-col items-center mt-12 gap-6">
           <button
             onClick={handleSkip}
