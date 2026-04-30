@@ -10,7 +10,8 @@ import BillingModule from './components/BillingModule';
 import HomeModule from './components/HomeModule';
 import BookingModule from './components/BookingModule';
 import ContentModule from './components/ContentModule';
-import SettingsModule from './components/SettingsModule'; // Importujeme nový SettingsModule
+import SettingsModule from './components/SettingsModule';
+import Onboarding from './components/Onboarding'; // <-- PŘIDÁN IMPORT ONBOARDINGU
 
 const AVAILABLE_MODULES = [
   { id: 'web', name: 'Webové projekty', icon: MonitorSmartphone, color: 'blue' },
@@ -21,14 +22,16 @@ const AVAILABLE_MODULES = [
 ];
 
 export default function DashboardPage() {
-  // Přidán stav 'settings' do možných modulů
   const [activeModule, setActiveModule] = useState<string>('home');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Stav pro moduly načtené z databáze
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  
+  // <-- PŘIDANÉ STAVY PRO ONBOARDING -->
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     getInitialData();
@@ -37,28 +40,34 @@ export default function DashboardPage() {
   const getInitialData = async () => {
     setLoading(true);
     
-    // 1. Získání aktuálně přihlášeného uživatele
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
       setUserId(user.id);
       
-      // 2. Načtení profilu ze Supabase
+      // Přidali jsme načtení 'user_type' a 'id' do dotazu
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('active_modules')
+        .select('id, active_modules, user_type') 
         .eq('id', user.id)
         .single();
 
-      if (profile && profile.active_modules) {
-        setEnabledModules(profile.active_modules);
+      if (profile) {
+        setUserProfile(profile); // Uložíme profil do stavu pro Onboarding
+        
+        if (profile.active_modules) {
+          setEnabledModules(profile.active_modules);
+        }
+        
+        // Zkontrolujeme, zda uživatel má vyplněný typ. Pokud ne, ukážeme Onboarding.
+        if (!profile.user_type || profile.user_type === '') {
+          setShowOnboarding(true);
+        }
       } else if (error) {
-        // Pokud profil neexistuje, použijeme default
         setEnabledModules(['web', 'photo', 'billing', 'bookings', 'content']);
       }
     }
 
-    // Načtení naposledy otevřeného modulu z localStorage
     const savedModule = localStorage.getItem('indiehub_active_module');
     if (savedModule) setActiveModule(savedModule);
     
@@ -79,10 +88,8 @@ export default function DashboardPage() {
       ? enabledModules.filter(id => id !== moduleId)
       : [...enabledModules, moduleId];
 
-    // Okamžitá aktualizace UI
     setEnabledModules(newEnabled);
 
-    // Uložení do Supabase
     const { error } = await supabase
       .from('profiles')
       .update({ active_modules: newEnabled })
@@ -90,15 +97,13 @@ export default function DashboardPage() {
 
     if (error) {
       alert('Chyba při ukládání nastavení: ' + error.message);
-      // V případě chyby vrátit původní stav
       setEnabledModules(enabledModules);
     }
   };
 
-  // Přidána funkce pro odhlášení
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.reload(); // Obnoví stránku a přesměruje uživatele na login (díky middleware/auth logice)
+    window.location.reload(); 
   };
 
   if (loading) {
@@ -113,6 +118,17 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-200 font-sans pb-20">
       
+      {/* PŘIDÁN ONBOARDING OVERLAY */}
+      {showOnboarding && userProfile && (
+        <Onboarding 
+          userId={userProfile.id} 
+          onComplete={() => {
+            setShowOnboarding(false);
+            window.location.reload(); // Refreshne stránku, aby se načetly správné moduly
+          }} 
+        />
+      )}
+
       {/* NAVIGACE */}
       <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-4 flex justify-between items-center gap-4">
@@ -144,7 +160,6 @@ export default function DashboardPage() {
 
           {/* PRAVÁ STRANA: AVATAR A MENU TLACITKO */}
           <div className="flex items-center gap-4">
-             {/* Kliknutí nyní přepíná na modul 'settings' místo otevírání modalu */}
              <button 
                onClick={() => handleModuleChange('settings')}
                className={`w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 border flex items-center justify-center text-white font-black hover:scale-105 transition-all shadow-lg shadow-emerald-500/20 ${activeModule === 'settings' ? 'border-white scale-105 ring-2 ring-emerald-500/50' : 'border-emerald-400'}`}
@@ -158,7 +173,7 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      {/* MOBILNÍ MENU (Vysouvací) */}
+      {/* MOBILNÍ MENU */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-xl flex flex-col p-6 animate-in fade-in duration-200 lg:hidden overflow-y-auto">
           <div className="flex justify-between items-center mb-8">
@@ -175,7 +190,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* OBSAH (Podmíněné renderování) */}
+      {/* OBSAH */}
       <div className="max-w-7xl mx-auto px-4 sm:px-8 py-10">
         {activeModule === 'home' && <HomeModule />}
         {activeModule === 'billing' && enabledModules.includes('billing') && <BillingModule />}
@@ -184,12 +199,12 @@ export default function DashboardPage() {
         {activeModule === 'bookings' && enabledModules.includes('bookings') && <BookingModule />}
         {activeModule === 'content' && enabledModules.includes('content') && <ContentModule />}
         
-        {/* Zobrazení nového modulu nastavení */}
         {activeModule === 'settings' && (
           <SettingsModule 
             enabledModules={enabledModules} 
             toggleModule={toggleModule} 
             onLogout={handleLogout} 
+            userId={userId} 
           />
         )}
       </div>

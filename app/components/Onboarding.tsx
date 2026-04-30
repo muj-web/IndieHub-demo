@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Palette, Briefcase, Hammer, UserCheck } from 'lucide-react';
 
-// Definice person MUSÍ být tady, aby s nimi mohl kód pracovat
+// Definice person
 const personas = [
   {
     id: 'kreativec',
@@ -60,6 +60,24 @@ export default function Onboarding({ userId, onComplete }: { userId: string, onC
     setLoading(null);
   };
 
+  // Nová funkce pro přeskočení
+  const handleSkip = async () => {
+    setLoading('skip');
+    
+    const { error } = await supabase
+      .from('profiles')
+      .update({ 
+        user_type: 'all', // Uložíme jako 'all', aby se okno už neukazovalo
+        active_modules: ['web', 'photo', 'billing', 'bookings', 'content'] // Zapneme všechny hlavní moduly
+      })
+      .eq('id', userId);
+
+    if (!error) {
+      onComplete();
+    }
+    setLoading(null);
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
       <div className="max-w-4xl w-full py-12">
@@ -101,9 +119,24 @@ export default function Onboarding({ userId, onComplete }: { userId: string, onC
           ))}
         </div>
         
-        <p className="text-center text-slate-500 text-xs mt-12 uppercase tracking-widest font-bold">
-          Nastavení můžete kdykoliv změnit v profilu
-        </p>
+        {/* Přidaná sekce pro přeskočení a spodní text */}
+        <div className="flex flex-col items-center mt-12 gap-6">
+          <button
+            onClick={handleSkip}
+            disabled={loading !== null}
+            className={`text-sm font-bold transition-colors flex items-center gap-2 hover:text-white underline underline-offset-4 decoration-slate-700 hover:decoration-slate-400 ${loading === 'skip' ? 'text-white' : 'text-slate-400'}`}
+          >
+            {loading === 'skip' && (
+              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
+            )}
+            Přeskočit a nechat zapnuté vše
+          </button>
+
+          <p className="text-slate-600 text-xs uppercase tracking-widest font-bold">
+            Nastavení můžete kdykoliv změnit v profilu
+          </p>
+        </div>
+
       </div>
     </div>
   );
