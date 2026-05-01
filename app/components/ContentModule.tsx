@@ -12,7 +12,7 @@ const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
 // Konfigurace tlačítek pro editor (odpovídá potřebám WordPressu)
 const quillModules = {
   toolbar: [
-    [{ 'header': [2, 3, false] }], // H2, H3, Normální text
+    [{ 'header': [2, 3, 4, false] }], // H2, H3, H4, Normální text
     ['bold', 'italic', 'underline', 'blockquote'],
     [{ 'list': 'ordered'}, { 'list': 'bullet' }],
     ['link', 'clean'] // Odkazy a vyčištění formátování
@@ -290,7 +290,10 @@ export default function ContentModule() {
 
       {editingPost && (
         <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className={`bg-slate-900 border-t-4 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl ${editingPost.post_type === 'web' ? 'border-t-[#21759b]' : 'border-t-fuchsia-500'}`}>
+          
+          <div className={`bg-slate-900 border-t-4 rounded-3xl w-full max-h-[90vh] flex flex-col shadow-2xl transition-all duration-300 ${editingPost.post_type === 'web' ? 'max-w-5xl border-t-[#21759b]' : 'max-w-2xl border-t-fuchsia-500'}`}>
+            
+            {/* ZDE BYL SMAZANÝ OBALOVACÍ DIV - OPRAVENO */}
             <div className="p-6 border-b border-slate-800 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 {editingPost.post_type === 'web' ? <Globe className="text-[#21759b] w-6 h-6" /> : <Sparkles className="text-fuchsia-500 w-6 h-6" />}
