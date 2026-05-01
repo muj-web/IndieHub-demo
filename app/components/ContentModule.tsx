@@ -3,6 +3,21 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plus, Trash2, Edit3, Image as ImageIcon, Calendar as CalendarIcon, LayoutGrid, ChevronLeft, ChevronRight, X, Save, Share2, Globe, Sparkles } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import 'react-quill-new/dist/quill.snow.css';
+
+// Dynamický import Quillu (vypne SSR, protože potřebuje přístup k window/prohlížeči)
+const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
+
+// Konfigurace tlačítek pro editor (odpovídá potřebám WordPressu)
+const quillModules = {
+  toolbar: [
+    [{ 'header': [2, 3, false] }], // H2, H3, Normální text
+    ['bold', 'italic', 'underline', 'blockquote'],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    ['link', 'clean'] // Odkazy a vyčištění formátování
+  ],
+};
 
 export default function ContentModule() {
   const [posts, setPosts] = useState<any[]>([]);
@@ -39,7 +54,6 @@ export default function ContentModule() {
     }
   };
 
-  // --- UPRAVENO: Přidán parametr post_type ---
   const addQuickIdea = (type: 'social' | 'web') => {
     setEditingPost({
       title: '',
@@ -47,7 +61,7 @@ export default function ContentModule() {
       media_link: [],
       status: 'napad',
       publish_date: '',
-      post_type: type // Ukládáme, o jaký typ jde
+      post_type: type
     });
   };
 
@@ -76,7 +90,6 @@ export default function ContentModule() {
     }
   };
 
-  // --- UPRAVENO: Ukládání zahrnuje post_type ---
   const handleSavePost = async () => {
     if (!editingPost) return;
     const payload = { ...editingPost };
@@ -122,10 +135,9 @@ export default function ContentModule() {
     }
   };
 
-  // --- UPRAVENO: Odesíláme post_type do Make.com ---
   const handlePublishToMake = async () => {
     if (!editingPost) return;
-    const WEBHOOK_URL = process.env.NEXT_PUBLIC_MAKE_WEBHOOK_URL || "https://hook.eu1.make.com/7ya71wgig0cz61284bly43tlgkelfr2d"; // tvůj stávající webhook
+    const WEBHOOK_URL = process.env.NEXT_PUBLIC_MAKE_WEBHOOK_URL || "https://hook.eu1.make.com/7ya71wgig0cz61284bly43tlgkelfr2d";
 
     const formattedMedia = Array.isArray(editingPost.media_link)
       ? editingPost.media_link.map((url: string) => ({ type: 'url', url: url }))
@@ -141,7 +153,7 @@ export default function ContentModule() {
           content: editingPost.content,
           media_link: formattedMedia, 
           publish_date: editingPost.publish_date,
-          post_type: editingPost.post_type // DŮLEŽITÉ: Make.com teď ví, co to je!
+          post_type: editingPost.post_type
         })
       });
 
@@ -186,7 +198,6 @@ export default function ContentModule() {
           </div>
           <div className="space-y-1">
             {postsThisDay.map(post => {
-              // Barevné odlišení v kalendáři
               const isWeb = post.post_type === 'web';
               const btnClass = isWeb 
                 ? "bg-sky-500/20 border-sky-500/30 text-sky-300 hover:bg-sky-500/40" 
@@ -217,7 +228,6 @@ export default function ContentModule() {
   return (
     <div className="animate-in fade-in duration-300 relative">
       
-      {/* HLAVIČKA A NOVÁ TLAČÍTKA */}
       <header className="mb-8 flex flex-col xl:flex-row justify-between items-start xl:items-end gap-6">
         <div>
           <h1 className="text-4xl font-extrabold mb-1 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Obsah & Sítě</h1>
@@ -227,7 +237,6 @@ export default function ContentModule() {
           </div>
         </div>
         
-        {/* Dvě oddělená tlačítka v barvách */}
         <div className="flex gap-3 w-full xl:w-auto">
           <button onClick={() => addQuickIdea('social')} className="flex-1 xl:flex-none justify-center bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:opacity-90 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center transition-all shadow-lg shadow-pink-500/20">
             <Sparkles className="w-4 h-4 mr-2" /> Příspěvek na sítě
@@ -238,7 +247,6 @@ export default function ContentModule() {
         </div>
       </header>
 
-      {/* KANBAN */}
       {view === 'kanban' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
           {columns.map(col => (
@@ -246,7 +254,6 @@ export default function ContentModule() {
               <div className={`text-[10px] font-black uppercase tracking-widest mb-4 p-2 rounded-lg ${col.bg} ${col.color} text-center border border-current/10`}>{col.title}</div>
               <div className="space-y-4 flex-grow">
                 {posts.filter(p => p.status === col.id).map(post => {
-                  // Vizuální stylování kartičky podle typu
                   const isWeb = post.post_type === 'web';
                   const borderHover = isWeb ? 'hover:border-sky-500/50' : 'hover:border-fuchsia-500/50';
                   const badgeClass = isWeb ? 'bg-sky-900/30 text-sky-400 border-sky-800' : 'bg-fuchsia-900/30 text-fuchsia-400 border-fuchsia-800';
@@ -254,7 +261,6 @@ export default function ContentModule() {
 
                   return (
                     <div key={post.id} className={`bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50 group transition-all shadow-sm ${borderHover}`}>
-                      {/* Štítek s typem */}
                       <div className={`text-[8px] font-black tracking-wider px-2 py-0.5 rounded-md border inline-block mb-2 ${badgeClass}`}>
                         {badgeText}
                       </div>
@@ -278,12 +284,10 @@ export default function ContentModule() {
         </div>
       )}
 
-      {/* KALENDÁŘ */}
       {view === 'calendar' && (
         <div className="bg-slate-900/40 rounded-3xl border border-slate-800 overflow-hidden"><div className="grid grid-cols-7">{renderCalendar()}</div></div>
       )}
 
-      {/* MODAL */}
       {editingPost && (
         <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
           <div className={`bg-slate-900 border-t-4 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl ${editingPost.post_type === 'web' ? 'border-t-[#21759b]' : 'border-t-fuchsia-500'}`}>
@@ -299,13 +303,11 @@ export default function ContentModule() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-grow custom-scrollbar">
-              {/* Název */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Název / Téma *</label>
                 <input type="text" value={editingPost.title} onChange={(e) => setEditingPost({...editingPost, title: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-purple-500 transition-all font-bold" placeholder="O čem to bude?" />
               </div>
 
-              {/* Datum a Status */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center"><CalendarIcon className="w-3.5 h-3.5 mr-1.5" /> Plánovaný čas</label>
@@ -319,7 +321,6 @@ export default function ContentModule() {
                 </div>
               </div>
 
-              {/* GALERIE (Ukazujeme primárně u sítí, i když WordPressu to může posloužit jako odkladiště) */}
               {editingPost.post_type === 'social' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center"><ImageIcon className="w-3.5 h-3.5 mr-1.5" /> Galerie příspěvku</label>
@@ -354,16 +355,33 @@ export default function ContentModule() {
                 </div>
               )}
 
-              {/* Text */}
+              {/* Text s Quill Editorem pro web */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
-                  {editingPost.post_type === 'web' ? 'Text článku (HTML / Editor)' : 'Text příspěvku (Copy)'}
+                  {editingPost.post_type === 'web' ? 'Text článku' : 'Text příspěvku (Copy)'}
                 </label>
-                <textarea value={editingPost.content || ''} onChange={(e) => setEditingPost({...editingPost, content: e.target.value})} className={`w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-slate-200 focus:outline-none transition-all resize-y placeholder:text-slate-700 ${editingPost.post_type === 'web' ? 'min-h-[300px] focus:border-[#21759b]' : 'min-h-[150px] focus:border-fuchsia-500'}`} placeholder={editingPost.post_type === 'web' ? 'Sem napiš svůj epický článek...' : 'Sem napiš své copy pro sítě...'} />
+                
+                {editingPost.post_type === 'web' ? (
+                  <div className="bg-slate-200 text-slate-900 rounded-xl overflow-hidden border border-[#21759b]">
+                    <ReactQuill 
+                      theme="snow" 
+                      value={editingPost.content || ''} 
+                      onChange={(content) => setEditingPost({...editingPost, content: content})} 
+                      modules={quillModules}
+                      className="min-h-[300px]"
+                    />
+                  </div>
+                ) : (
+                  <textarea 
+                    value={editingPost.content || ''} 
+                    onChange={(e) => setEditingPost({...editingPost, content: e.target.value})} 
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-slate-200 focus:outline-none transition-all resize-y placeholder:text-slate-700 min-h-[150px] focus:border-fuchsia-500" 
+                    placeholder="Sem napiš své copy pro sítě..." 
+                  />
+                )}
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center rounded-b-3xl">
               <div>
                 {editingPost.id && (
