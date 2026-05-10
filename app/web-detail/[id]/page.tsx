@@ -37,8 +37,8 @@ export default function WebDetail() {
   const [savingAdmin, setSavingAdmin] = useState(false);
 
   const fetchProjectAndTasks = async () => {
-    const { data: projData } = await supabase.from('web_projects').select('*').eq('id', params.id).single();
-    const { data: tasksData } = await supabase.from('web_tasks').select('*').eq('project_id', params.id).order('created_at', { ascending: true });
+    const { data: projData } = await supabase.from('projects').select('*').eq('id', params.id).single();
+    const { data: tasksData } = await supabase.from('tasks').select('*').eq('project_id', params.id).order('created_at', { ascending: true });
 
     if (projData) {
       setProject(projData);
@@ -66,31 +66,31 @@ export default function WebDetail() {
     setSavingState(true);
     // Pokud je hodnota u datumu prázdná, pošleme do DB null
     const finalValue = value === '' && field.includes('date') ? null : value;
-    await supabase.from('web_projects').update({ [field]: finalValue }).eq('id', project.id);
+    await supabase.from('projects').update({ [field]: finalValue }).eq('id', project.id);
     setSavingState(false);
     fetchProjectAndTasks(); // Zajišťuje propis i do hlavičky
   };
 
   const updateStatus = async (newStatus: string) => {
-    await supabase.from('web_projects').update({ status: newStatus }).eq('id', project.id);
+    await supabase.from('projects').update({ status: newStatus }).eq('id', project.id);
     fetchProjectAndTasks(); 
   };
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
-    await supabase.from('web_tasks').insert([{ project_id: project.id, title: newTaskTitle }]);
+    await supabase.from('tasks').insert([{ project_id: project.id, title: newTaskTitle }]);
     setNewTaskTitle('');
     fetchProjectAndTasks();
   };
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
-    await supabase.from('web_tasks').update({ is_completed: !currentStatus }).eq('id', taskId);
+    await supabase.from('tasks').update({ is_completed: !currentStatus }).eq('id', taskId);
     fetchProjectAndTasks();
   };
 
   const deleteTask = async (taskId: string) => {
-    await supabase.from('web_tasks').delete().eq('id', taskId);
+    await supabase.from('tasks').delete().eq('id', taskId);
     fetchProjectAndTasks();
   };
 

@@ -4,120 +4,181 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, MonitorSmartphone, Save, Calendar, User, DollarSign } from 'lucide-react';
+import { ArrowLeft, MonitorSmartphone, Save, User, Link as LinkIcon, Palette, Loader2, AlertCircle, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function NovyWeb() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  
+  // Nový stav pro hezké chybové hlášky
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     project_name: '',
     client_name: '',
-    launch_date: '',
-    time_estimated: '0',
-    hourly_rate: '1000',
-    status: 'rozpracovano'
+    slug: '',
+    accent_color: '#8E44ED'
   });
+
+  const handleNameChange = (name: string) => {
+    const slug = name.toLowerCase().trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/[^\w-]+/g, '');
+    
+    setFormData({ ...formData, project_name: name, slug });
+    setErrorMsg(null); // Skryjeme error při psaní
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg(null);
 
-    const { error } = await supabase.from('web_projects').insert([{
-      ...formData,
-      time_estimated: Number(formData.time_estimated),
-      hourly_rate: Number(formData.hourly_rate),
-      total_price: Number(formData.time_estimated) * Number(formData.hourly_rate)
-    }]);
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (error) {
-      alert('Chyba: ' + error.message);
+    // 1. Založení samotného projektu
+    const { data: newProject, error } = await supabase.from('projects').insert([{
+      project_name: formData.project_name,
+      client_name: formData.client_name,
+      slug: formData.slug,
+      accent_color: formData.accent_color,
+      status: 'rozpracovano',
+      owner_id: user?.id
+    }]).select().single();
+
+    if (error || !newProject) {
+      // MÍSTO ALERTU NASTAVÍME NÁŠ VLASTNÍ ERROR
+      setErrorMsg(error?.message || 'Neznámá chyba při komunikaci s databází.');
       setLoading(false);
-    } else {
-      router.push('/');
-      router.refresh();
+      return;
     }
+
+    // 2. Automatické vytvoření výchozí "Homepage"
+    const { error: pageError } = await supabase.from('project_pages').insert({
+      project_id: newProject.id,
+      title: "Domů",
+      slug: "", 
+      is_homepage: true,
+      order_index: 0
+    });
+
+    if (pageError) {
+      console.error("Chyba při vytváření úvodní stránky:", pageError);
+    }
+
+    router.push('/');
+    router.refresh();
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 p-8 font-sans text-slate-200">
-      <div className="max-w-2xl mx-auto bg-slate-900/50 p-8 rounded-3xl border border-slate-800 shadow-2xl">
-        <Link href="/" className="inline-flex items-center text-xs font-bold uppercase text-slate-500 hover:text-cyan-400 mb-8 tracking-widest transition-colors">
+    <main className="min-h-screen bg-[var(--background)] p-4 sm:p-8 font-sans transition-colors duration-500 flex flex-col justify-center">
+      <div className="max-w-2xl mx-auto w-full bg-white dark:bg-slate-900/50 p-8 rounded-[2rem] border border-zinc-200 dark:border-slate-800 shadow-xl dark:shadow-none transition-colors">
+        
+        <Link href="/" className="inline-flex items-center text-xs font-bold uppercase text-zinc-500 dark:text-slate-500 hover:text-purple-600 dark:hover:text-cyan-400 mb-8 tracking-widest transition-colors">
           <ArrowLeft className="w-4 h-4 mr-2" /> Zpět na přehled
         </Link>
         
-        <header className="flex items-center gap-4 mb-10 border-b border-slate-800/50 pb-6">
-          <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-            <MonitorSmartphone className="w-6 h-6 text-blue-500" />
+        <header className="flex items-center gap-4 mb-8 border-b border-zinc-100 dark:border-slate-800/50 pb-6">
+          <div className="p-3 bg-purple-50 dark:bg-purple-500/10 rounded-xl border border-purple-100 dark:border-purple-500/20">
+            <MonitorSmartphone className="w-6 h-6 text-purple-600 dark:text-purple-500" />
           </div>
           <div>
-            <h1 className="text-3xl font-black text-slate-100">Nový webový projekt</h1>
-            <p className="text-sm text-slate-400 font-medium mt-1">Založení nové zakázky na vývoj webu</p>
+            <h1 className="text-3xl font-black text-zinc-900 dark:text-slate-100">Nový webový projekt</h1>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 font-medium mt-1">Založení čistého plátna pro Chameleon Engine</p>
           </div>
         </header>
 
+        {/* HEZKÁ CHYBOVÁ HLÁŠKA MÍSTO ALERTU */}
+        <AnimatePresence>
+          {errorMsg && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-8 p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl flex items-start gap-3"
+            >
+              <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-grow">
+                <h4 className="text-sm font-bold text-rose-800 dark:text-rose-300">Při zakládání projektu došlo k chybě</h4>
+                <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{errorMsg}</p>
+              </div>
+              <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-600 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <form onSubmit={handleSubmit} className="space-y-6">
+          
           <div>
-            <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2">Název projektu *</label>
+            <label className="text-[10px] font-black uppercase text-zinc-500 dark:text-slate-500 ml-1 block mb-2">Název projektu (Webu) *</label>
             <input 
               required
               type="text" 
-              placeholder="Např. E-shop se sportovním vybavením"
+              placeholder="Např. Kadeřnictví Elite"
               value={formData.project_name}
-              onChange={(e) => setFormData({...formData, project_name: e.target.value})}
-              className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-slate-200"
+              onChange={(e) => handleNameChange(e.target.value)}
+              className="w-full p-4 bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none text-zinc-900 dark:text-slate-200 transition-colors"
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2 flex items-center gap-2"><User className="w-3 h-3" /> Jméno klienta</label>
-              <input 
-                type="text" 
-                placeholder="Jan Novák"
-                value={formData.client_name}
-                onChange={(e) => setFormData({...formData, client_name: e.target.value})}
-                className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-slate-200"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2 flex items-center gap-2"><Calendar className="w-3 h-3" /> Cílové spuštění</label>
-              <input 
-                type="date" 
-                value={formData.launch_date}
-                onChange={(e) => setFormData({...formData, launch_date: e.target.value})}
-                className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-slate-200 [color-scheme:dark]"
-              />
-            </div>
+          <div>
+            <label className="text-[10px] font-black uppercase text-zinc-500 dark:text-slate-500 ml-1 block mb-2 flex items-center gap-2">
+              <User className="w-3 h-3" /> Jméno klienta (Volitelné)
+            </label>
+            <input 
+              type="text" 
+              placeholder="Jan Novák"
+              value={formData.client_name}
+              onChange={(e) => setFormData({...formData, client_name: e.target.value})}
+              className="w-full p-4 bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none text-zinc-900 dark:text-slate-200 transition-colors"
+            />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-zinc-100 dark:border-slate-800/50">
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2">Časový odhad (hodiny)</label>
+              <label className="text-[10px] font-black uppercase text-zinc-500 dark:text-slate-500 ml-1 block mb-2 flex items-center gap-2">
+                <LinkIcon className="w-3 h-3" /> URL Slug (Adresa webu) *
+              </label>
               <input 
-                type="number" 
-                value={formData.time_estimated}
-                onChange={(e) => setFormData({...formData, time_estimated: e.target.value})}
-                className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-slate-200 font-bold"
+                required
+                type="text" 
+                value={formData.slug}
+                onChange={(e) => setFormData({...formData, slug: e.target.value})}
+                className="w-full p-4 bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none text-zinc-900 dark:text-slate-200 font-mono text-sm transition-colors"
               />
             </div>
+            
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2 flex items-center gap-2"><DollarSign className="w-3 h-3" /> Hodinová sazba (Kč)</label>
-              <input 
-                type="number" 
-                value={formData.hourly_rate}
-                onChange={(e) => setFormData({...formData, hourly_rate: e.target.value})}
-                className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-slate-200 font-bold"
-              />
+              <label className="text-[10px] font-black uppercase text-zinc-500 dark:text-slate-500 ml-1 block mb-2 flex items-center gap-2">
+                <Palette className="w-3 h-3" /> Hlavní barva (Accent Color)
+              </label>
+              <div className="flex gap-3">
+                <input 
+                  type="color"
+                  value={formData.accent_color}
+                  onChange={(e) => setFormData({...formData, accent_color: e.target.value})}
+                  className="w-14 h-14 bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl p-1 cursor-pointer transition-colors shrink-0"
+                />
+                <input 
+                  type="text" 
+                  value={formData.accent_color}
+                  onChange={(e) => setFormData({...formData, accent_color: e.target.value})}
+                  className="w-full p-4 bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none text-zinc-900 dark:text-slate-200 font-mono text-sm uppercase transition-colors"
+                />
+              </div>
             </div>
           </div>
 
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white p-5 rounded-xl font-black uppercase tracking-widest hover:from-blue-500 hover:to-cyan-500 transition-colors disabled:opacity-50 mt-4 flex items-center justify-center gap-3 shadow-lg shadow-blue-500/20"
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white p-5 rounded-xl font-black uppercase tracking-widest hover:opacity-90 transition-all disabled:opacity-50 mt-8 flex items-center justify-center gap-3 shadow-lg shadow-purple-500/20 hover:scale-[1.02] active:scale-[0.98]"
           >
-            {loading ? 'Ukládám...' : <><Save className="w-5 h-5" /> Vytvořit projekt</>}
+            {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Vytvářím prostředí...</> : <><Save className="w-5 h-5" /> Vytvořit projekt</>}
           </button>
         </form>
       </div>

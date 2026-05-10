@@ -29,7 +29,7 @@ export default function Login() {
         setError('Chyba registrace: ' + error.message);
       } else {
         // Pokud máš v Supabase vypnuté "Confirm Email", tohle ho rovnou přihlásí
-        router.push('/'); 
+        window.location.href = '/';
       }
     } else {
       // BĚŽNÉ PŘIHLÁŠENÍ
@@ -41,7 +41,7 @@ export default function Login() {
       if (error) {
         setError('Špatný e-mail nebo heslo.');
       } else {
-        router.push('/'); 
+        window.location.href = '/';
       }
     }
     setLoading(false);

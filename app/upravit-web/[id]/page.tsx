@@ -25,11 +25,7 @@ export default function UpravitWeb() {
   // Načtení dat stávajícího projektu
   useEffect(() => {
     const fetchProject = async () => {
-      const { data, error } = await supabase
-        .from('web_projects')
-        .select('*')
-        .eq('id', params.id)
-        .single();
+      const { data, error } = await supabase.from('projects').select('*').eq('id', params.id).single();
 
       if (data) {
         setFormData({
@@ -53,9 +49,7 @@ export default function UpravitWeb() {
     e.preventDefault();
     setSaving(true);
 
-    const { error } = await supabase
-      .from('web_projects')
-      .update({
+    const { error } = await supabase.from('projects').update({
         project_name: formData.project_name,
         client_name: formData.client_name,
         client_notes: formData.client_notes,
