@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import { Jost, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
+// Tady vracíme zpět naše chytré obaly!
+import AuthGuard from "@/lib/components/AuthGuard";
+import { ThemeProvider } from "@/lib/components/ThemeProvider";
+import { ConfirmProvider } from "@/lib/components/ConfirmProvider";
+
 const fontJost = Jost({ 
   subsets: ["latin", "latin-ext"],
   variable: '--font-jost',
@@ -25,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="cs" className="scroll-smooth">
+    <html lang="cs" className="scroll-smooth" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -35,7 +40,13 @@ export default function RootLayout({
         className={`${fontJost.variable} ${fontPlayfair.variable} font-sans antialiased min-h-screen selection:bg-dt-accent/40 selection:text-white`}
         suppressHydrationWarning
       >   
-        {children}
+        <ThemeProvider>
+          <ConfirmProvider>
+            <AuthGuard>
+              {children}
+            </AuthGuard>
+          </ConfirmProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
