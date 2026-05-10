@@ -35,13 +35,11 @@ export default function BuilderSectionCard({
     setHasChanges(false);
   }, [section.content_data]);
 
-  // --- FUNKCE PRO ZÁKLADNÍ POLÍČKA ---
   const updateContent = (key: string, value: any) => {
     setLocalContent((prev: any) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
 
-  // --- FUNKCE PRO REPEATER (Pole karet / služeb) ---
   const addRepeaterItem = (arrayName: string, subFields: ComponentField[]) => {
     const currentArray = localContent[arrayName] || [];
     const newItem: any = {};
@@ -69,8 +67,10 @@ export default function BuilderSectionCard({
     updateContent(arrayName, newArray);
   };
 
+  // OPRAVA TLAČÍTKA ULOŽIT
   const handleSave = () => {
     onSave(section.id, localContent);
+    setHasChanges(false); // Toto schová zelené tlačítko po uložení
   };
 
   const currentSchema = COMPONENT_SCHEMAS[section.component_type] || [];
@@ -79,7 +79,6 @@ export default function BuilderSectionCard({
     <motion.div layout className="w-full relative group">
       <div className="bg-white border border-zinc-200 rounded-[2rem] shadow-sm flex flex-col overflow-hidden">
         
-        {/* --- HEADER KARTY --- */}
         <div className="p-4 sm:p-6 flex flex-col md:flex-row items-center justify-between gap-4 bg-zinc-50 border-b border-zinc-200">
           <div className="flex items-center gap-4 w-full">
             <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center font-black text-zinc-400 border border-zinc-200 shrink-0">
@@ -123,7 +122,6 @@ export default function BuilderSectionCard({
           </div>
         </div>
 
-        {/* --- TĚLO KARTY --- */}
         <div className="bg-white flex-1 p-6">
           <div className="flex gap-6 border-b border-zinc-200 mb-6">
             <button onClick={() => setActiveTab('design')} className={`pb-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'design' ? 'border-purple-600 text-purple-600' : 'border-transparent text-zinc-400 hover:text-zinc-700'}`}>Vzhled</button>
@@ -131,7 +129,6 @@ export default function BuilderSectionCard({
           </div>
 
           {activeTab === 'design' ? (
-            /* ZÁLOŽKA VZHLED */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
                 <label className="text-[9px] font-bold uppercase text-zinc-500">Zarovnání</label>
@@ -150,7 +147,6 @@ export default function BuilderSectionCard({
                 <input type="text" placeholder="https://..." value={localContent.bg_src || ''} onChange={(e) => updateContent('bg_src', e.target.value)} className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs outline-none w-full focus:border-purple-600 font-mono" />
               </div>
 
-              {/* --- NOVÉ: DYNAMICKÁ POLE ZE SCHÉMATU PRO VZHLED --- */}
               {currentSchema.filter((f) => f.tab === 'design').map((field) => {
                 if (field.type === 'select' && field.options) {
                   return (
@@ -173,14 +169,12 @@ export default function BuilderSectionCard({
               })}
             </div>
           ) : (
-            /* ZÁLOŽKA OBSAH */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {currentSchema.length === 0 ? (
                 <div className="md:col-span-2 p-8 text-center border-2 border-dashed rounded-2xl text-zinc-400 text-sm font-mono">
                   Schema "{section.component_type}" zatím nebylo definováno v component-schemas.ts
                 </div>
               ) : (
-                /* TADY JE PŘIDANÝ TEN FILTER, ABY SE V TEXTECH NEUKAZOVAL VZHLED */
                 currentSchema.filter((f) => f.tab !== 'design').map((field) => {
                   
                   if (field.type === 'string') {

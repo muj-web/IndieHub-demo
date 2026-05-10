@@ -71,36 +71,97 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const [creatingParentId, setCreatingParentId] = useState<string | null>(null);
   const [isAnchor, setIsAnchor] = useState(false);
 
+  // Stavy pro Roadmapu (Tasks)
+  const [newTask, setNewTask] = useState("");
+
   // Stavy pro Sekce a Vzhled
   const [newSection, setNewSection] = useState("hero-cinematic");
   const [sectionToDelete, setSectionToDelete] = useState<string | null>(null);
   const [themeToApply, setThemeToApply] = useState<string | null>(null);
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'delete' });
 
   useEffect(() => { fetchProject(); }, [id]);
 
   async function fetchProject() {
-    const { data } = await supabase
+    // Tady jsme SMAZALI setLoading(true)! 
+    // Data se tak aktualizují neviditelně na pozadí, aniž by obrazovka problikla.
+    const { data: projData, error: projError } = await supabase
       .from('projects')
-      .select('*, tasks(*), project_pages(*), project_sections(*)')
+      .select('*')
       .eq('id', id)
       .single();
       
-    if (data) {
-      if (data.tasks) data.tasks.sort((a: any, b: any) => a.order_index - b.order_index);
-      if (data.project_pages) data.project_pages.sort((a: any, b: any) => a.order_index - b.order_index);
-      if (data.project_sections) data.project_sections.sort((a: any, b: any) => a.order_index - b.order_index);
-      
-      // Nastavíme aktivní stránku na Homepage, pokud žádná není vybraná
-      if (!activePageId && data.project_pages && data.project_pages.length > 0) {
-        const homePage = data.project_pages.find((p: any) => p.is_homepage) || data.project_pages[0];
-        setActivePageId(homePage.id);
-      }
+    if (projError || !projData) {
+      setProject(null);
+      setLoading(false);
+      return;
     }
-    setProject(data);
-    setLoading(false);
+
+    const { data: pages } = await supabase.from('project_pages').select('*').eq('project_id', id).order('order_index');
+    const { data: sections } = await supabase.from('project_sections').select('*').eq('project_id', id).order('order_index');
+    const { data: tasks } = await supabase.from('tasks').select('*').eq('project_id', id).order('created_at'); 
+
+    const fullProject = {
+      ...projData,
+      project_pages: pages || [],
+      project_sections: sections || [],
+      tasks: tasks || []
+    };
+
+    if (!activePageId && fullProject.project_pages.length > 0) {
+      const homePage = fullProject.project_pages.find((p: any) => p.is_homepage) || fullProject.project_pages[0];
+      setActivePageId(homePage.id);
+    }
+
+    setProject(fullProject);
+    setLoading(false); // Vypne loading obrazovku pouze při PRVNÍM načtení
   }
 
-  // --- LOGIKA PRO PODSTRÁNKY ---
+  const triggerToast = (message: string, type: 'success' | 'delete') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 5000);
+  };
+
+  // --- OKAMŽITÁ (OPTIMISTICKÁ) ZMĚNA VZHLEDU ---
+  async function updateDesignConfig(key: string, value: string) {
+    // 1. Změníme lokální stav IHNED
+    setProject((prev: any) => ({ ...prev, design_config: { ...(prev?.design_config || {}), [key]: value } }));
+    
+    // 2. Pošleme do DB na pozadí
+    const currentConfig = project?.design_config || {};
+    await supabase.from('projects').update({ design_config: { ...currentConfig, [key]: value } }).eq('id', id);
+    triggerToast("Globální styl aktualizován", "success");
+  }
+
+  async function updatePalette(key: string, value: string) {
+    setProject((prev: any) => ({ ...prev, color_palette: { ...(prev?.color_palette || {}), [key]: value } }));
+    const currentPalette = project?.color_palette || {};
+    await supabase.from('projects').update({ color_palette: { ...currentPalette, [key]: value } }).eq('id', id);
+  }
+
+  async function toggleWireframe() {
+    const newVal = !project?.is_wireframe;
+    setProject((prev: any) => ({ ...prev, is_wireframe: newVal }));
+    await supabase.from('projects').update({ is_wireframe: newVal }).eq('id', id);
+    triggerToast(newVal ? "Wireframe mód aktivován" : "Vizuální mód aktivován", "success");
+  }
+
+  async function confirmApplyTheme() {
+    if (!themeToApply) return;
+    const theme = THEME_PRESETS[themeToApply];
+    
+    // Okamžitá lokální změna
+    setProject((prev: any) => ({ ...prev, color_palette: theme.color_palette, design_config: theme.design_config }));
+    
+    const { error } = await supabase.from('projects').update({ 
+      color_palette: theme.color_palette, design_config: theme.design_config 
+    }).eq('id', id);
+    
+    if (!error) triggerToast(`Vibe ${theme.name} aplikován`, "success");
+    setThemeToApply(null);
+  }
+
+  // --- OSTATNÍ FUNKCE ---
   async function createPage(e: React.FormEvent) {
     e.preventDefault();
     if (!newPageTitle.trim()) return;
@@ -110,14 +171,14 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
       .replace(/\s+/g, '-')
       .replace(/[^\w-]+/g, '');
 
-    const isFirstPage = !project.project_pages || project.project_pages.length === 0;
+    const isFirstPage = !project?.project_pages || project.project_pages.length === 0;
 
     const { data, error } = await supabase.from('project_pages').insert({
       project_id: id,
       title: newPageTitle,
       slug: (isFirstPage && !creatingParentId) ? '' : slug,
       is_homepage: (isFirstPage && !creatingParentId),
-      order_index: project.project_pages?.length || 0,
+      order_index: project?.project_pages?.length || 0,
       parent_id: creatingParentId,
       is_anchor: isAnchor,
       menu_type: activeMenu
@@ -130,89 +191,83 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
       setIsAnchor(false);
       setActivePageId(data.id);
       fetchProject();
-    } else {
-      alert("Chyba při vytváření stránky: " + (error?.message || "Neznámá chyba"));
+      triggerToast("Nová stránka vytvořena", "success");
     }
   }
 
   async function deleteActivePage() {
     const activePage = project?.project_pages?.find((p: any) => p.id === activePageId);
     if (!activePage) return;
-    if (activePage.is_homepage) {
-      alert("Domovskou stránku nelze smazat.");
-      return;
-    }
+    if (activePage.is_homepage) return alert("Domovskou stránku nelze smazat.");
     if (!confirm(`Opravdu chcete smazat stránku "${activePage.title}" včetně všech jejích sekcí?`)) return;
 
-    const { error } = await supabase.from('project_pages').delete().eq('id', activePageId);
-    if (!error) {
-      setActivePageId(null);
-      fetchProject();
-    } else {
-      alert("Chyba při mazání stránky: " + error.message);
-    }
+    await supabase.from('project_pages').delete().eq('id', activePageId);
+    setActivePageId(null);
+    fetchProject();
+    triggerToast("Stránka byla smazána", "delete");
   }
 
-  // --- LOGIKA PRO SEKCE ---
   async function saveSectionContentFromCard(sectionId: string, updatedContent: any) {
-    const { error } = await supabase.from('project_sections').update({ content_data: updatedContent }).eq('id', sectionId);
-    if (!error) fetchProject();
+    // Okamžitá úprava v lokálním poli
+    setProject((prev: any) => ({
+      ...prev, project_sections: prev.project_sections.map((s: any) => s.id === sectionId ? { ...s, content_data: updatedContent } : s)
+    }));
+    await supabase.from('project_sections').update({ content_data: updatedContent }).eq('id', sectionId);
+    triggerToast("Změny byly uloženy", "success");
   }
 
   async function changeComponentVariant(sectionId: string, newVariant: string) {
+    setProject((prev: any) => ({
+      ...prev, project_sections: prev.project_sections.map((s: any) => s.id === sectionId ? { ...s, component_type: newVariant } : s)
+    }));
     await supabase.from('project_sections').update({ component_type: newVariant }).eq('id', sectionId);
-    fetchProject();
+    triggerToast("Komponenta změněna", "success");
   }
 
   async function confirmDeleteSection() {
     if (!sectionToDelete) return;
+    setProject((prev: any) => ({ ...prev, project_sections: prev.project_sections.filter((s: any) => s.id !== sectionToDelete) }));
     await supabase.from('project_sections').delete().eq('id', sectionToDelete);
-    fetchProject();
     setSectionToDelete(null);
+    triggerToast("Sekce odstraněna", "delete");
   }
 
   async function moveSection(index: number, direction: 'up' | 'down') {
-    const sections = activeSections;
+    const sections = [...activeSections];
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= sections.length) return;
-    await supabase.from('project_sections').update({ order_index: newIndex }).eq('id', sections[index].id);
-    await supabase.from('project_sections').update({ order_index: index }).eq('id', sections[newIndex].id);
+    
+    await supabase.from('project_sections').update({ order_index: sections[newIndex].order_index }).eq('id', sections[index].id);
+    await supabase.from('project_sections').update({ order_index: sections[index].order_index }).eq('id', sections[newIndex].id);
     fetchProject();
-  }
-
-  async function updateDesignConfig(key: string, value: string) {
-    const currentConfig = project.design_config || {};
-    await supabase.from('projects').update({ design_config: { ...currentConfig, [key]: value } }).eq('id', id);
-    fetchProject();
-  }
-
-  async function updatePalette(key: string, value: string) {
-    const currentPalette = project.color_palette || {};
-    await supabase.from('projects').update({ color_palette: { ...currentPalette, [key]: value } }).eq('id', id);
-    fetchProject();
-  }
-
-  async function confirmApplyTheme() {
-    if (!themeToApply) return;
-    const theme = THEME_PRESETS[themeToApply];
-    const { error } = await supabase.from('projects').update({ 
-      color_palette: theme.color_palette, design_config: theme.design_config 
-    }).eq('id', id);
-    if (!error) fetchProject();
-    setThemeToApply(null);
   }
 
   async function addSection(e: React.FormEvent) {
     e.preventDefault(); 
     if (!activePageId) return alert("Vyberte stránku.");
     await supabase.from('project_sections').insert({ 
-      project_id: id, 
-      page_id: activePageId, 
-      component_type: newSection, 
-      order_index: activeSections.length || 0 
+      project_id: id, page_id: activePageId, component_type: newSection, order_index: activeSections.length || 0 
     });
     fetchProject();
+    triggerToast("Nová sekce přidána", "success");
   }
+
+  async function addTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTask.trim()) return;
+    await supabase.from('tasks').insert({ project_id: id, title: newTask });
+    setNewTask("");
+    fetchProject();
+    triggerToast("Úkol přidán", "success");
+  }
+
+  async function toggleTask(taskId: string, currentState: boolean) {
+    await supabase.from('tasks').update({ is_completed: !currentState }).eq('id', taskId);
+    fetchProject();
+  }
+
+  if (loading) return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center"><Loader2 className="w-12 h-12 text-purple-600 animate-spin" /></div>;
+  if (!project) return <div className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-zinc-500 font-bold uppercase tracking-widest">Projekt nebyl nalezen.</div>;
 
   const accentColor = project?.accent_color || "#8E44ED";
   const activeSections = project?.project_sections?.filter((s: any) => s.page_id === activePageId) || [];
@@ -220,98 +275,156 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const isHomePage = activePageObj?.is_homepage || false;
   const previewUrl = activePageObj && !isHomePage ? `/demo/${project?.slug}/${activePageObj.slug}` : `/demo/${project?.slug}`;
 
-  if (loading) return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center"><Loader2 className="w-12 h-12 text-purple-600 animate-spin" /></div>;
-
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4 md:p-8 overflow-x-hidden font-sans transition-colors duration-500">
-      <div className="max-w-[1600px] mx-auto w-full relative z-10">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4 md:p-8 pt-24 md:pt-32 overflow-x-hidden font-sans transition-colors duration-500 relative">
+      <div className="max-w-[1600px] mx-auto w-[95%] md:w-[90%] relative z-10">
         
         {/* --- HEADER --- */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="p-3 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-xl hover:text-purple-600 transition-all shadow-sm">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 md:mb-16">
+          <div className="flex items-center gap-4 md:gap-6">
+            <Link href="/" className="p-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[1.5rem] hover:text-purple-600 transition-all shrink-0 shadow-sm">
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-3xl font-black uppercase tracking-tighter flex items-center gap-2">
+              <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-none flex flex-wrap items-center gap-2 md:gap-4 text-zinc-900 dark:text-white">
                 <span className="truncate max-w-[200px] sm:max-w-md">{project?.project_name}</span>
-                <span className="text-zinc-400 dark:text-slate-500 font-light">/ Builder</span>
+                <span className="text-zinc-400 dark:text-slate-600 text-xl md:text-2xl whitespace-nowrap">/ Builder</span>
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <Link href={previewUrl || '#'} target="_blank" className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-xl font-bold text-xs uppercase tracking-widest hover:text-purple-600 transition-all shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <Link 
+              href={previewUrl || '#'} 
+              target="_blank" 
+              className="flex items-center justify-center flex-grow md:flex-grow-0 gap-3 px-8 py-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 text-zinc-700 dark:text-slate-300 rounded-2xl font-bold text-xs uppercase tracking-widest hover:text-purple-600 transition-all shadow-sm"
+            >
               Live náhled <ExternalLink className="w-4 h-4" />
             </Link>
-            <button className="flex items-center gap-2 px-6 py-3 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg hover:scale-105" style={{ backgroundColor: accentColor }}>
+            <button className="flex items-center justify-center flex-grow md:flex-grow-0 gap-3 px-8 py-4 text-white rounded-2xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg hover:scale-105" style={{ backgroundColor: accentColor, boxShadow: `0 10px 30px ${accentColor}40` }}>
               Publikovat <Rocket className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* --- HLAVNÍ GRID --- */}
+        {/* --- HLAVNÍ GRID 33 / 66 --- */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          {/* LEVÝ SLOUPEC: DESIGN */}
+          {/* LEVÝ SLOUPEC: DESIGN A ROADMAPA */}
           <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm transition-colors">
-              <div className="flex items-center gap-3 mb-6">
-                <Palette className="w-5 h-5" style={{ color: accentColor }} />
-                <h2 className="text-lg font-bold uppercase tracking-tight">Design System</h2>
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-6 md:p-8 shadow-sm">
+              
+              <div className="flex items-center gap-4 mb-8">
+                <Palette className="w-6 h-6 shrink-0" style={{ color: accentColor }} />
+                <h2 className="text-xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white truncate">Design System</h2>
               </div>
 
-              {/* VÝBĚR TÉMATU */}
-              <div className="mb-6 p-4 border border-zinc-200 dark:border-slate-800 rounded-2xl bg-zinc-50 dark:bg-slate-950/50">
-                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-slate-400 mb-2 flex items-center gap-2">
-                   <Sparkles size={12} /> Zvolit Vibe
+              {/* --- VÝBĚR TÉMATU --- */}
+              <div className="mb-6 p-4 border border-zinc-200 dark:border-slate-800 rounded-2xl bg-zinc-50/50 dark:bg-slate-950/50">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-slate-500 mb-2 flex items-center gap-2">
+                   <Sparkles size={12} /> Zvolit přednastavený Vibe
                 </label>
-                <select onChange={(e) => { setThemeToApply(e.target.value); e.target.value = ""; }} value="" className="w-full bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-purple-600 transition-all cursor-pointer text-zinc-900 dark:text-white">
-                  <option value="" disabled>-- Vyberte téma --</option>
+                <select 
+                  onChange={(e) => {
+                    setThemeToApply(e.target.value);
+                    e.target.value = ""; 
+                  }}
+                  value=""
+                  className="w-full bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-zinc-700 dark:text-slate-200 focus:outline-none focus:border-purple-600 transition-all cursor-pointer shadow-sm"
+                >
+                  <option value="" disabled>-- Vyberte téma pro aplikaci --</option>
                   {Object.entries(THEME_PRESETS).map(([key, theme]: any) => (
                     <option key={key} value={key}>{theme.name}</option>
                   ))}
                 </select>
+                <p className="text-[9px] text-zinc-400 mt-2 leading-relaxed">
+                  Upozornění: Výběr tématu přepíše aktuální barvy, font a zaoblení níže.
+                </p>
               </div>
 
-              {/* BAREVNÁ PALETA */}
-              <div className="space-y-6 mb-8">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-slate-500 border-b border-zinc-100 dark:border-slate-800 pb-2">Barevná paleta</p>
-                <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={toggleWireframe}
+                className={`w-full flex items-center justify-center gap-3 px-4 md:px-6 py-4 rounded-2xl font-bold text-[10px] uppercase tracking-widest transition-all mb-10 border ${
+                  project?.is_wireframe ? 'bg-zinc-50 dark:bg-slate-950 text-zinc-400 border-zinc-200 dark:border-slate-800' : 'text-white border-transparent shadow-lg'
+                }`}
+                style={!project?.is_wireframe ? { backgroundColor: accentColor, boxShadow: `0 10px 20px ${accentColor}30` } : {}}
+              >
+                {project?.is_wireframe ? <EyeOff size={16} /> : <Eye size={16} />}
+                <span className="truncate">{project?.is_wireframe ? 'Mód: Wireframe' : 'Mód: Vizuální Design'}</span>
+              </button>
+
+              <div className="space-y-6 mb-10">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 dark:text-slate-600 border-b border-zinc-100 dark:border-slate-800 pb-2">Barevná paleta</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[{ key: 'bg', label: 'Pozadí' }, { key: 'text', label: 'Text' }, { key: 'accent', label: 'Akcent' }, { key: 'surface', label: 'Karty' }].map(c => (
                     <div key={c.key} className="space-y-2">
-                      <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-slate-500">{c.label}</label>
+                      <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-slate-500 ml-1">{c.label}</label>
                       <div className="flex gap-2">
-                        <input type="color" value={project.color_palette?.[c.key]} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-8 h-8 rounded cursor-pointer border border-zinc-200 dark:border-slate-700 p-0.5 bg-transparent" />
-                        <input type="text" value={project.color_palette?.[c.key]} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-2 text-[10px] font-mono focus:outline-none focus:border-purple-600 text-zinc-900 dark:text-white" />
+                        <input type="color" value={project?.color_palette?.[c.key] || '#ffffff'} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer shrink-0 border border-zinc-200 dark:border-slate-700 bg-transparent" />
+                        <input type="text" value={project?.color_palette?.[c.key] || '#ffffff'} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 text-[10px] font-mono min-w-0 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white" />
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* GLOBÁLNÍ STYLY */}
               <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-slate-500 border-b border-zinc-100 dark:border-slate-800 pb-2">Globální styl</p>
-                
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-slate-400 flex items-center gap-2"><Type size={14}/> Nadpisy</span>
-                  <select value={project.design_config?.font_heading} onChange={(e) => updateDesignConfig('font_heading', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none text-zinc-900 dark:text-white">
-                    <option value="Inter">Inter (Modern)</option>
-                    <option value="Lexend">Lexend (Tech)</option>
-                    <option value="Playfair Display">Playfair (Elegant)</option>
-                  </select>
-                </div>
-                
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-slate-400 flex items-center gap-2"><Square size={14}/> Zaoblení</span>
-                  <select value={project.design_config?.radius} onChange={(e) => updateDesignConfig('radius', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none text-zinc-900 dark:text-white">
-                    <option value="0px">Ostré</option>
-                    <option value="0.75rem">Střední</option>
-                    <option value="9999px">Kulaté</option>
-                  </select>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 dark:text-slate-600 border-b border-zinc-100 dark:border-slate-800 pb-2">Globální styl a rozložení</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Type size={14}/> Nadpisy</span>
+                    <select value={project?.design_config?.font_heading || 'Inter'} onChange={(e) => updateDesignConfig('font_heading', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="Inter">Inter (Modern)</option>
+                      <option value="Lexend">Lexend (Geometric)</option>
+                      <option value="Playfair Display">Playfair (Elegant)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Square size={14}/> Zaoblení</span>
+                    <select value={project?.design_config?.radius || '0.75rem'} onChange={(e) => updateDesignConfig('radius', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="0px">Ostré (0px)</option>
+                      <option value="0.75rem">Střední (12px)</option>
+                      <option value="9999px">Kulaté / Full</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><AlignLeft size={14}/> Zarovnání</span>
+                    <select value={project?.design_config?.align || 'center'} onChange={(e) => updateDesignConfig('align', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="left">Doleva</option>
+                      <option value="center">Na střed</option>
+                      <option value="right">Doprava</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Maximize size={14}/> Šířka webu</span>
+                    <select value={project?.design_config?.content_width || '60'} onChange={(e) => updateDesignConfig('content_width', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="100">Celá šířka</option>
+                      <option value="80">Široký</option>
+                      <option value="60">Standard</option>
+                      <option value="50">Úzký</option>
+                    </select>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* ROADMAPA */}
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-6 md:p-8 shadow-sm transition-colors">
+               <h3 className="text-xs font-black uppercase tracking-widest mb-6 flex items-center gap-2 text-zinc-900 dark:text-white"><CheckCircle2 size={16} style={{ color: accentColor }}/> Roadmapa a úkoly</h3>
+               <form onSubmit={addTask} className="relative mb-6">
+                 <input type="text" value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="Přidat úkol..." className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-3 text-xs text-zinc-900 dark:text-slate-200 focus:outline-none focus:border-purple-600 transition-all pr-12" />
+                 <button type="submit" className="absolute right-1 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 dark:bg-slate-800 text-white rounded-lg hover:bg-purple-600 transition-all"><Plus className="w-4 h-4" /></button>
+               </form>
+               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                 {project?.tasks?.map((t: any) => (
+                   <div key={t.id} onClick={() => toggleTask(t.id, t.is_completed)} className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-slate-900/50 rounded-xl border border-zinc-100 dark:border-slate-800 text-[11px] cursor-pointer hover:border-zinc-300 dark:hover:border-slate-600 transition-all group">
+                     <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${t.is_completed ? 'bg-purple-600 border-purple-600' : 'border-zinc-300 dark:border-slate-600 bg-white dark:bg-slate-950 group-hover:border-purple-300'}`}>
+                       {t.is_completed && <CheckCircle2 className="w-3 h-3 text-white" />}
+                     </div>
+                     <span className={`break-words ${t.is_completed ? 'line-through text-zinc-400 dark:text-slate-600' : 'text-zinc-700 dark:text-slate-300'}`}>{t.title}</span>
+                   </div>
+                 ))}
+               </div>
             </div>
           </div>
 
@@ -428,53 +541,53 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
             </div>
 
             {/* --- BUILDER KARTY --- */}
-            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm min-h-[600px] transition-colors">
-              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8">
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[3rem] p-6 md:p-10 shadow-sm min-h-[600px] transition-colors">
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8 md:mb-12">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10">
-                     <Layout className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: `${accentColor}15` }}>
+                     <Layout className="w-6 h-6" style={{ color: accentColor }} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black uppercase tracking-tight text-zinc-900 dark:text-white flex items-center gap-3">
-                      Struktura stránky
+                    <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">Struktura stránky</h2>
+                    <div className="flex items-center gap-3 mt-1">
+                      <p className="text-zinc-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+                        {activePageObj?.title || "Vyberte stránku"}
+                      </p>
                       {!isHomePage && activePageObj && (
-                        <button onClick={deleteActivePage} className="text-rose-400 hover:text-rose-600 p-1.5 bg-rose-50 dark:bg-rose-500/10 rounded-lg transition-colors" title="Smazat tuto stránku">
-                          <Trash2 size={14} />
+                        <button 
+                          onClick={deleteActivePage} 
+                          className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors border border-red-100 dark:border-red-500/20" 
+                          title="Smazat celou tuto stránku"
+                        >
+                          <Trash2 size={12} />
                         </button>
                       )}
-                    </h2>
-                    <p className="text-zinc-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest">
-                      {activePageObj?.title || "Vyberte stránku z menu výše"}
-                    </p>
+                    </div>
                   </div>
                 </div>
 
-                <form onSubmit={addSection} className="flex gap-2 w-full xl:w-auto">
-                  <select 
-                    value={newSection} 
-                    onChange={(e) => setNewSection(e.target.value)} 
-                    className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 text-zinc-900 dark:text-white"
-                  >
+                <form onSubmit={addSection} className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+                  <select value={newSection} onChange={(e) => setNewSection(e.target.value)} className="w-full sm:w-auto bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-2xl px-5 py-3 text-sm focus:border-purple-600 outline-none min-w-0 font-medium text-zinc-900 dark:text-white">
                     {Array.from(new Set(availableComponents
                       .filter(c => c.scope.includes(isHomePage ? 'home' : 'sub'))
                       .map(c => c.id.split('-')[0])
                     )).map(category => (
-                      <optgroup key={category} label={category.toUpperCase()} className="font-bold bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400">
+                      <optgroup key={category} label={category.toUpperCase()} className="text-purple-600 dark:text-purple-400 font-bold bg-white dark:bg-slate-900">
                         {availableComponents
                           .filter(c => c.id.startsWith(category + '-') && c.scope.includes(isHomePage ? 'home' : 'sub'))
                           .map(c => (
-                            <option key={c.id} value={c.id} className="font-normal text-zinc-900 dark:text-slate-200">{c.name}</option>
+                            <option key={c.id} value={c.id} className="text-zinc-900 dark:text-slate-200 font-normal">{c.name}</option>
                         ))}
                       </optgroup>
                     ))}
                   </select>
-                  <button type="submit" disabled={!activePageId} className="px-6 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold text-xs uppercase whitespace-nowrap shadow-sm hover:opacity-90 disabled:opacity-50">
-                    Přidat
+                  <button disabled={!activePageId} type="submit" className="w-full sm:w-auto text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase transition-all whitespace-nowrap shrink-0 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100" style={{ backgroundColor: accentColor, boxShadow: `0 5px 15px ${accentColor}30` }}>
+                    + Přidat sekci
                   </button>
                 </form>
               </div>
 
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4">
                 <AnimatePresence>
                   {activeSections.map((section: any, index: number) => (
                     <BuilderSectionCard
@@ -490,9 +603,9 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
                     />
                   ))}
                 </AnimatePresence>
-                
+
                 {activeSections.length === 0 && (
-                  <div className="py-20 border-2 border-dashed border-zinc-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-zinc-400 dark:text-slate-500 bg-zinc-50 dark:bg-slate-900/30">
+                  <div className="py-20 border-2 border-dashed border-zinc-200 dark:border-slate-800 rounded-[3rem] flex flex-col items-center justify-center text-zinc-400 dark:text-slate-500 bg-zinc-50/50 dark:bg-slate-900/30">
                     <Layers className="w-12 h-12 mb-4 opacity-30" />
                     <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Tato stránka je prázdná. Přidejte první sekci.</p>
                   </div>
@@ -504,28 +617,27 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
         </div>
       </div>
       
-      {/* MODAL PRO SMAZÁNÍ */}
+      {/* --- MODALY --- */}
       <AnimatePresence>
         {sectionToDelete && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSectionToDelete(null)} className="absolute inset-0 bg-zinc-900/40 dark:bg-slate-950/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl text-center">
-              <div className="w-16 h-16 bg-rose-50 dark:bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} /></div>
+              <div className="w-16 h-16 bg-red-50 dark:bg-rose-500/10 text-red-500 dark:text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} /></div>
               <h3 className="text-xl font-black uppercase tracking-tighter mb-2 text-zinc-900 dark:text-white">Odstranit sekci?</h3>
               <p className="text-zinc-500 dark:text-slate-400 text-sm mb-8 leading-relaxed">Tato akce je nevratná. Sekce bude trvale odstraněna.</p>
               <div className="flex flex-col gap-3">
-                <button onClick={confirmDeleteSection} className="w-full py-4 bg-rose-500 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20">Ano, smazat</button>
-                <button onClick={() => setSectionToDelete(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
+                <button onClick={confirmDeleteSection} className="w-full py-4 bg-red-500 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-red-600 transition-all shadow-lg shadow-red-500/20">Ano, smazat</button>
+                <button onClick={() => setSectionToDelete(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-400 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* MODAL PRO ZMĚNU THEME */}
       <AnimatePresence>
         {themeToApply && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setThemeToApply(null)} className="absolute inset-0 bg-zinc-900/40 dark:bg-slate-950/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl text-center">
               <div className="w-16 h-16 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-full flex items-center justify-center mx-auto mb-6"><Sparkles size={32} /></div>
@@ -533,12 +645,39 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
               <p className="text-zinc-500 dark:text-slate-400 text-sm mb-8 leading-relaxed">Opravdu chcete přepsat aktuální barvy a styly presetem <strong className="text-zinc-800 dark:text-slate-200">{THEME_PRESETS[themeToApply]?.name}</strong>?</p>
               <div className="flex flex-col gap-3">
                 <button onClick={confirmApplyTheme} className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20">Ano, aplikovat styl</button>
-                <button onClick={() => setThemeToApply(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
+                <button onClick={() => setThemeToApply(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-400 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {toast.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[10002] flex items-center gap-5 px-6 py-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)]"
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${toast.type === 'success' ? 'bg-green-50 dark:bg-emerald-500/10 text-green-500 dark:text-emerald-500' : 'bg-red-50 dark:bg-rose-500/10 text-red-500 dark:text-rose-500'}`}>
+                {toast.type === 'success' ? <CheckCircle2 size={18} /> : <Trash2 size={18} />}
+              </div>
+              <div className="flex flex-col">
+                <p className="text-sm font-bold text-zinc-900 dark:text-white leading-none">{toast.message}</p>
+                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mt-1">Synchronizováno s DB</p>
+              </div>
+            </div>
+            {toast.type === 'success' && project?.slug && (
+              <div className="pl-5 border-l border-zinc-100 dark:border-slate-800">
+                <Link href={previewUrl || '#'} target="_blank" onClick={() => setToast({ ...toast, show: false })} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 px-4 py-2.5 rounded-xl">
+                  Na web <ExternalLink size={12} />
+                </Link>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

@@ -1,24 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Jost, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
-import AuthGuard from "@/lib/components/AuthGuard";
-import { ThemeProvider } from "@/lib/components/ThemeProvider";
-import { ConfirmProvider } from "@/lib/components/ConfirmProvider";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const fontJost = Jost({ 
+  subsets: ["latin", "latin-ext"],
+  variable: '--font-jost',
+  display: 'swap',
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const fontPlayfair = Playfair_Display({ 
+  subsets: ["latin", "latin-ext"],
+  variable: '--font-playfair',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: "Chameleon OS - Radek Čech",
-  description: "Interní CRM, web builder a fakturační systém",
+  title: "Digitální tvůrce",
+  description: "Moderní weby a SEO, které fungují",
 };
 
 export default function RootLayout({
@@ -27,19 +25,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="cs" 
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
-      suppressHydrationWarning
-    >
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <ThemeProvider>
-          <ConfirmProvider>
-            <AuthGuard>
-              {children}
-            </AuthGuard>
-          </ConfirmProvider>
-        </ThemeProvider>
+    <html lang="cs" className="scroll-smooth">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=Lexend:wght@300;400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet" />
+      </head>
+      <body 
+        className={`${fontJost.variable} ${fontPlayfair.variable} font-sans antialiased min-h-screen selection:bg-dt-accent/40 selection:text-white`}
+        suppressHydrationWarning
+      >   
+        {children}
       </body>
     </html>
   );

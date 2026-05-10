@@ -48,7 +48,6 @@ export default function BillingModule() {
     };
     fetchInvoices();
 
-    // Načtení přednastavených služeb pro POS
     const savedPosServices = localStorage.getItem('chameleon_pos_services');
     if (savedPosServices) {
       setPosServices(JSON.parse(savedPosServices));
@@ -68,7 +67,6 @@ export default function BillingModule() {
     else setInvoices(invoices.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv));
   };
 
-  // --- LOGIKA POS TERMINÁLU ---
   const savePosServices = (services: any[]) => {
     setPosServices(services);
     localStorage.setItem('chameleon_pos_services', JSON.stringify(services));
@@ -107,7 +105,6 @@ export default function BillingModule() {
     setPosTotal(0);
   };
 
-  // Dynamický SPAYD QR kód
   const posIban = process.env.NEXT_PUBLIC_IBAN || 'CZ0000000000000000000000';
   const posSpaydString = `SPD*1.0*ACC:${posIban}*AM:${posTotal.toFixed(2)}*CC:CZK*MSG:Rychla platba`;
 
@@ -132,8 +129,6 @@ export default function BillingModule() {
       {isPosOpen && (
         <div className="fixed inset-0 z-[100] bg-zinc-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] animate-in zoom-in-95 duration-200">
-            
-            {/* LEVÁ STRANA: Pokladna / Služby */}
             <div className="w-full md:w-3/5 bg-zinc-50 dark:bg-slate-900 flex flex-col h-[60vh] md:h-auto overflow-hidden">
               <div className="p-6 border-b border-zinc-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-950">
                 <h2 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
@@ -155,8 +150,8 @@ export default function BillingModule() {
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Správa přednastavených služeb</h3>
                       <form onSubmit={handleAddPosService} className="flex gap-2 mb-6">
-                        <input type="text" value={newPosService.name} onChange={e => setNewPosService({...newPosService, name: e.target.value})} placeholder="Název (např. Konzultace)" className="flex-1 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
-                        <input type="number" value={newPosService.price} onChange={e => setNewPosService({...newPosService, price: e.target.value})} placeholder="Cena (Kč)" className="w-24 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
+                        <input type="text" value={newPosService.name} onChange={e => setNewPosService({...newPosService, name: e.target.value})} placeholder="Název" className="flex-1 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
+                        <input type="number" value={newPosService.price} onChange={e => setNewPosService({...newPosService, price: e.target.value})} placeholder="Cena" className="w-24 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
                         <button type="submit" className="bg-amber-600 text-white px-3 rounded-xl hover:bg-amber-500"><Plus className="w-5 h-5" /></button>
                       </form>
                     </div>
@@ -222,7 +217,6 @@ export default function BillingModule() {
               </div>
             </div>
 
-            {/* PRAVÁ STRANA: QR KÓD */}
             <div className="w-full md:w-2/5 bg-zinc-900 dark:bg-slate-950 p-8 flex flex-col items-center justify-center text-center relative border-l border-zinc-800 h-[40vh] md:h-auto">
               <button onClick={() => setIsPosOpen(false)} className="absolute top-6 right-6 p-2 text-zinc-500 hover:text-white transition-colors hidden md:block">
                 <X className="w-6 h-6" />
@@ -259,7 +253,6 @@ export default function BillingModule() {
           <p className="text-zinc-500 dark:text-slate-400 text-sm font-medium">Správa dokladů, záloh a klientů</p>
         </div>
         <div className="flex flex-wrap md:flex-nowrap gap-3 w-full md:w-auto">
-          {/* NOVÉ TLAČÍTKO POS */}
           <button 
             onClick={() => setIsPosOpen(true)}
             className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 rounded-xl font-bold transition-all text-sm whitespace-nowrap shadow-lg shadow-zinc-900/20"
@@ -268,11 +261,15 @@ export default function BillingModule() {
           </button>
 
           <Link href="/klienti" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-100 dark:bg-slate-900 hover:bg-zinc-200 dark:hover:bg-slate-800 text-zinc-700 dark:text-slate-300 rounded-xl font-bold transition-colors text-sm border border-zinc-200 dark:border-slate-800"><UserSquare className="w-4 h-4" /> Adresář</Link>
+          
+          {/* PŘIDÁNO: Zpět odkaz na Finanční přehled */}
+          <Link href="/prehled" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-800 dark:bg-slate-800 hover:bg-zinc-700 dark:hover:bg-slate-700 text-white rounded-xl font-bold transition-colors text-sm border border-zinc-700 dark:border-slate-700"><TrendingUp className="w-4 h-4" /> Přehled</Link>
+          
           <Link href="/nova-faktura" className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold transition-colors text-sm whitespace-nowrap shadow-lg shadow-amber-500/20 dark:shadow-none"><Plus className="w-4 h-4" /> Faktura</Link>
         </div>
       </header>
 
-      {/* STATISTIKY */}
+      {/* ... zbytek souboru (statistiky a tabulka) zůstává stejný ... */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         {[
           { label: 'Obrat (30 dní)', value: `${invoices.filter(i => i.status === 'zaplaceno').reduce((s, i) => s + Number(i.total_amount), 0).toLocaleString('cs-CZ')} Kč`, icon: <DollarSign className="w-6 h-6 text-emerald-500 dark:text-emerald-400" /> },              
@@ -287,7 +284,6 @@ export default function BillingModule() {
         ))}
       </div>
 
-      {/* FILTRY */}
       <div className="flex flex-wrap md:flex-nowrap gap-2 md:gap-3 mb-8 bg-white dark:bg-slate-900/30 p-2 rounded-2xl border border-zinc-200 dark:border-slate-800/50 w-full items-center shadow-sm dark:shadow-none transition-colors">
         <span className="px-3 py-2 text-sm font-bold text-zinc-500 hidden sm:block whitespace-nowrap">Filtrovat:</span>
         {[

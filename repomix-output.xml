@@ -161,6 +161,7 @@ app/
 lib/
   components/
     AuthGuard.tsx
+    ConfirmProvider.tsx
     ThemeProvider.tsx
   component-registry.tsx
   component-schemas.ts
@@ -407,36 +408,97 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const [creatingParentId, setCreatingParentId] = useState<string | null>(null);
   const [isAnchor, setIsAnchor] = useState(false);
 
+  // Stavy pro Roadmapu (Tasks)
+  const [newTask, setNewTask] = useState("");
+
   // Stavy pro Sekce a Vzhled
   const [newSection, setNewSection] = useState("hero-cinematic");
   const [sectionToDelete, setSectionToDelete] = useState<string | null>(null);
   const [themeToApply, setThemeToApply] = useState<string | null>(null);
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'delete' });
 
   useEffect(() => { fetchProject(); }, [id]);
 
   async function fetchProject() {
-    const { data } = await supabase
+    // Tady jsme SMAZALI setLoading(true)! 
+    // Data se tak aktualizují neviditelně na pozadí, aniž by obrazovka problikla.
+    const { data: projData, error: projError } = await supabase
       .from('projects')
-      .select('*, tasks(*), project_pages(*), project_sections(*)')
+      .select('*')
       .eq('id', id)
       .single();
       
-    if (data) {
-      if (data.tasks) data.tasks.sort((a: any, b: any) => a.order_index - b.order_index);
-      if (data.project_pages) data.project_pages.sort((a: any, b: any) => a.order_index - b.order_index);
-      if (data.project_sections) data.project_sections.sort((a: any, b: any) => a.order_index - b.order_index);
-      
-      // Nastavíme aktivní stránku na Homepage, pokud žádná není vybraná
-      if (!activePageId && data.project_pages && data.project_pages.length > 0) {
-        const homePage = data.project_pages.find((p: any) => p.is_homepage) || data.project_pages[0];
-        setActivePageId(homePage.id);
-      }
+    if (projError || !projData) {
+      setProject(null);
+      setLoading(false);
+      return;
     }
-    setProject(data);
-    setLoading(false);
+
+    const { data: pages } = await supabase.from('project_pages').select('*').eq('project_id', id).order('order_index');
+    const { data: sections } = await supabase.from('project_sections').select('*').eq('project_id', id).order('order_index');
+    const { data: tasks } = await supabase.from('tasks').select('*').eq('project_id', id).order('created_at'); 
+
+    const fullProject = {
+      ...projData,
+      project_pages: pages || [],
+      project_sections: sections || [],
+      tasks: tasks || []
+    };
+
+    if (!activePageId && fullProject.project_pages.length > 0) {
+      const homePage = fullProject.project_pages.find((p: any) => p.is_homepage) || fullProject.project_pages[0];
+      setActivePageId(homePage.id);
+    }
+
+    setProject(fullProject);
+    setLoading(false); // Vypne loading obrazovku pouze při PRVNÍM načtení
   }
 
-  // --- LOGIKA PRO PODSTRÁNKY ---
+  const triggerToast = (message: string, type: 'success' | 'delete') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 5000);
+  };
+
+  // --- OKAMŽITÁ (OPTIMISTICKÁ) ZMĚNA VZHLEDU ---
+  async function updateDesignConfig(key: string, value: string) {
+    // 1. Změníme lokální stav IHNED
+    setProject((prev: any) => ({ ...prev, design_config: { ...(prev?.design_config || {}), [key]: value } }));
+    
+    // 2. Pošleme do DB na pozadí
+    const currentConfig = project?.design_config || {};
+    await supabase.from('projects').update({ design_config: { ...currentConfig, [key]: value } }).eq('id', id);
+    triggerToast("Globální styl aktualizován", "success");
+  }
+
+  async function updatePalette(key: string, value: string) {
+    setProject((prev: any) => ({ ...prev, color_palette: { ...(prev?.color_palette || {}), [key]: value } }));
+    const currentPalette = project?.color_palette || {};
+    await supabase.from('projects').update({ color_palette: { ...currentPalette, [key]: value } }).eq('id', id);
+  }
+
+  async function toggleWireframe() {
+    const newVal = !project?.is_wireframe;
+    setProject((prev: any) => ({ ...prev, is_wireframe: newVal }));
+    await supabase.from('projects').update({ is_wireframe: newVal }).eq('id', id);
+    triggerToast(newVal ? "Wireframe mód aktivován" : "Vizuální mód aktivován", "success");
+  }
+
+  async function confirmApplyTheme() {
+    if (!themeToApply) return;
+    const theme = THEME_PRESETS[themeToApply];
+    
+    // Okamžitá lokální změna
+    setProject((prev: any) => ({ ...prev, color_palette: theme.color_palette, design_config: theme.design_config }));
+    
+    const { error } = await supabase.from('projects').update({ 
+      color_palette: theme.color_palette, design_config: theme.design_config 
+    }).eq('id', id);
+    
+    if (!error) triggerToast(`Vibe ${theme.name} aplikován`, "success");
+    setThemeToApply(null);
+  }
+
+  // --- OSTATNÍ FUNKCE ---
   async function createPage(e: React.FormEvent) {
     e.preventDefault();
     if (!newPageTitle.trim()) return;
@@ -446,14 +508,14 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
       .replace(/\s+/g, '-')
       .replace(/[^\w-]+/g, '');
 
-    const isFirstPage = !project.project_pages || project.project_pages.length === 0;
+    const isFirstPage = !project?.project_pages || project.project_pages.length === 0;
 
     const { data, error } = await supabase.from('project_pages').insert({
       project_id: id,
       title: newPageTitle,
       slug: (isFirstPage && !creatingParentId) ? '' : slug,
       is_homepage: (isFirstPage && !creatingParentId),
-      order_index: project.project_pages?.length || 0,
+      order_index: project?.project_pages?.length || 0,
       parent_id: creatingParentId,
       is_anchor: isAnchor,
       menu_type: activeMenu
@@ -466,89 +528,83 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
       setIsAnchor(false);
       setActivePageId(data.id);
       fetchProject();
-    } else {
-      alert("Chyba při vytváření stránky: " + (error?.message || "Neznámá chyba"));
+      triggerToast("Nová stránka vytvořena", "success");
     }
   }
 
   async function deleteActivePage() {
     const activePage = project?.project_pages?.find((p: any) => p.id === activePageId);
     if (!activePage) return;
-    if (activePage.is_homepage) {
-      alert("Domovskou stránku nelze smazat.");
-      return;
-    }
+    if (activePage.is_homepage) return alert("Domovskou stránku nelze smazat.");
     if (!confirm(`Opravdu chcete smazat stránku "${activePage.title}" včetně všech jejích sekcí?`)) return;
 
-    const { error } = await supabase.from('project_pages').delete().eq('id', activePageId);
-    if (!error) {
-      setActivePageId(null);
-      fetchProject();
-    } else {
-      alert("Chyba při mazání stránky: " + error.message);
-    }
+    await supabase.from('project_pages').delete().eq('id', activePageId);
+    setActivePageId(null);
+    fetchProject();
+    triggerToast("Stránka byla smazána", "delete");
   }
 
-  // --- LOGIKA PRO SEKCE ---
   async function saveSectionContentFromCard(sectionId: string, updatedContent: any) {
-    const { error } = await supabase.from('project_sections').update({ content_data: updatedContent }).eq('id', sectionId);
-    if (!error) fetchProject();
+    // Okamžitá úprava v lokálním poli
+    setProject((prev: any) => ({
+      ...prev, project_sections: prev.project_sections.map((s: any) => s.id === sectionId ? { ...s, content_data: updatedContent } : s)
+    }));
+    await supabase.from('project_sections').update({ content_data: updatedContent }).eq('id', sectionId);
+    triggerToast("Změny byly uloženy", "success");
   }
 
   async function changeComponentVariant(sectionId: string, newVariant: string) {
+    setProject((prev: any) => ({
+      ...prev, project_sections: prev.project_sections.map((s: any) => s.id === sectionId ? { ...s, component_type: newVariant } : s)
+    }));
     await supabase.from('project_sections').update({ component_type: newVariant }).eq('id', sectionId);
-    fetchProject();
+    triggerToast("Komponenta změněna", "success");
   }
 
   async function confirmDeleteSection() {
     if (!sectionToDelete) return;
+    setProject((prev: any) => ({ ...prev, project_sections: prev.project_sections.filter((s: any) => s.id !== sectionToDelete) }));
     await supabase.from('project_sections').delete().eq('id', sectionToDelete);
-    fetchProject();
     setSectionToDelete(null);
+    triggerToast("Sekce odstraněna", "delete");
   }
 
   async function moveSection(index: number, direction: 'up' | 'down') {
-    const sections = activeSections;
+    const sections = [...activeSections];
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= sections.length) return;
-    await supabase.from('project_sections').update({ order_index: newIndex }).eq('id', sections[index].id);
-    await supabase.from('project_sections').update({ order_index: index }).eq('id', sections[newIndex].id);
+    
+    await supabase.from('project_sections').update({ order_index: sections[newIndex].order_index }).eq('id', sections[index].id);
+    await supabase.from('project_sections').update({ order_index: sections[index].order_index }).eq('id', sections[newIndex].id);
     fetchProject();
-  }
-
-  async function updateDesignConfig(key: string, value: string) {
-    const currentConfig = project.design_config || {};
-    await supabase.from('projects').update({ design_config: { ...currentConfig, [key]: value } }).eq('id', id);
-    fetchProject();
-  }
-
-  async function updatePalette(key: string, value: string) {
-    const currentPalette = project.color_palette || {};
-    await supabase.from('projects').update({ color_palette: { ...currentPalette, [key]: value } }).eq('id', id);
-    fetchProject();
-  }
-
-  async function confirmApplyTheme() {
-    if (!themeToApply) return;
-    const theme = THEME_PRESETS[themeToApply];
-    const { error } = await supabase.from('projects').update({ 
-      color_palette: theme.color_palette, design_config: theme.design_config 
-    }).eq('id', id);
-    if (!error) fetchProject();
-    setThemeToApply(null);
   }
 
   async function addSection(e: React.FormEvent) {
     e.preventDefault(); 
     if (!activePageId) return alert("Vyberte stránku.");
     await supabase.from('project_sections').insert({ 
-      project_id: id, 
-      page_id: activePageId, 
-      component_type: newSection, 
-      order_index: activeSections.length || 0 
+      project_id: id, page_id: activePageId, component_type: newSection, order_index: activeSections.length || 0 
     });
     fetchProject();
+    triggerToast("Nová sekce přidána", "success");
   }
+
+  async function addTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTask.trim()) return;
+    await supabase.from('tasks').insert({ project_id: id, title: newTask });
+    setNewTask("");
+    fetchProject();
+    triggerToast("Úkol přidán", "success");
+  }
+
+  async function toggleTask(taskId: string, currentState: boolean) {
+    await supabase.from('tasks').update({ is_completed: !currentState }).eq('id', taskId);
+    fetchProject();
+  }
+
+  if (loading) return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center"><Loader2 className="w-12 h-12 text-purple-600 animate-spin" /></div>;
+  if (!project) return <div className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-zinc-500 font-bold uppercase tracking-widest">Projekt nebyl nalezen.</div>;
 
   const accentColor = project?.accent_color || "#8E44ED";
   const activeSections = project?.project_sections?.filter((s: any) => s.page_id === activePageId) || [];
@@ -556,98 +612,156 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const isHomePage = activePageObj?.is_homepage || false;
   const previewUrl = activePageObj && !isHomePage ? `/demo/${project?.slug}/${activePageObj.slug}` : `/demo/${project?.slug}`;
 
-  if (loading) return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center"><Loader2 className="w-12 h-12 text-purple-600 animate-spin" /></div>;
-
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4 md:p-8 overflow-x-hidden font-sans transition-colors duration-500">
-      <div className="max-w-[1600px] mx-auto w-full relative z-10">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4 md:p-8 pt-24 md:pt-32 overflow-x-hidden font-sans transition-colors duration-500 relative">
+      <div className="max-w-[1600px] mx-auto w-[95%] md:w-[90%] relative z-10">
         
         {/* --- HEADER --- */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="p-3 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-xl hover:text-purple-600 transition-all shadow-sm">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 md:mb-16">
+          <div className="flex items-center gap-4 md:gap-6">
+            <Link href="/" className="p-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[1.5rem] hover:text-purple-600 transition-all shrink-0 shadow-sm">
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-3xl font-black uppercase tracking-tighter flex items-center gap-2">
+              <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-none flex flex-wrap items-center gap-2 md:gap-4 text-zinc-900 dark:text-white">
                 <span className="truncate max-w-[200px] sm:max-w-md">{project?.project_name}</span>
-                <span className="text-zinc-400 dark:text-slate-500 font-light">/ Builder</span>
+                <span className="text-zinc-400 dark:text-slate-600 text-xl md:text-2xl whitespace-nowrap">/ Builder</span>
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <Link href={previewUrl || '#'} target="_blank" className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-xl font-bold text-xs uppercase tracking-widest hover:text-purple-600 transition-all shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <Link 
+              href={previewUrl || '#'} 
+              target="_blank" 
+              className="flex items-center justify-center flex-grow md:flex-grow-0 gap-3 px-8 py-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 text-zinc-700 dark:text-slate-300 rounded-2xl font-bold text-xs uppercase tracking-widest hover:text-purple-600 transition-all shadow-sm"
+            >
               Live náhled <ExternalLink className="w-4 h-4" />
             </Link>
-            <button className="flex items-center gap-2 px-6 py-3 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg hover:scale-105" style={{ backgroundColor: accentColor }}>
+            <button className="flex items-center justify-center flex-grow md:flex-grow-0 gap-3 px-8 py-4 text-white rounded-2xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg hover:scale-105" style={{ backgroundColor: accentColor, boxShadow: `0 10px 30px ${accentColor}40` }}>
               Publikovat <Rocket className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* --- HLAVNÍ GRID --- */}
+        {/* --- HLAVNÍ GRID 33 / 66 --- */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          {/* LEVÝ SLOUPEC: DESIGN */}
+          {/* LEVÝ SLOUPEC: DESIGN A ROADMAPA */}
           <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm transition-colors">
-              <div className="flex items-center gap-3 mb-6">
-                <Palette className="w-5 h-5" style={{ color: accentColor }} />
-                <h2 className="text-lg font-bold uppercase tracking-tight">Design System</h2>
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-6 md:p-8 shadow-sm">
+              
+              <div className="flex items-center gap-4 mb-8">
+                <Palette className="w-6 h-6 shrink-0" style={{ color: accentColor }} />
+                <h2 className="text-xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white truncate">Design System</h2>
               </div>
 
-              {/* VÝBĚR TÉMATU */}
-              <div className="mb-6 p-4 border border-zinc-200 dark:border-slate-800 rounded-2xl bg-zinc-50 dark:bg-slate-950/50">
-                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-slate-400 mb-2 flex items-center gap-2">
-                   <Sparkles size={12} /> Zvolit Vibe
+              {/* --- VÝBĚR TÉMATU --- */}
+              <div className="mb-6 p-4 border border-zinc-200 dark:border-slate-800 rounded-2xl bg-zinc-50/50 dark:bg-slate-950/50">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 dark:text-slate-500 mb-2 flex items-center gap-2">
+                   <Sparkles size={12} /> Zvolit přednastavený Vibe
                 </label>
-                <select onChange={(e) => { setThemeToApply(e.target.value); e.target.value = ""; }} value="" className="w-full bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-purple-600 transition-all cursor-pointer text-zinc-900 dark:text-white">
-                  <option value="" disabled>-- Vyberte téma --</option>
+                <select 
+                  onChange={(e) => {
+                    setThemeToApply(e.target.value);
+                    e.target.value = ""; 
+                  }}
+                  value=""
+                  className="w-full bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-zinc-700 dark:text-slate-200 focus:outline-none focus:border-purple-600 transition-all cursor-pointer shadow-sm"
+                >
+                  <option value="" disabled>-- Vyberte téma pro aplikaci --</option>
                   {Object.entries(THEME_PRESETS).map(([key, theme]: any) => (
                     <option key={key} value={key}>{theme.name}</option>
                   ))}
                 </select>
+                <p className="text-[9px] text-zinc-400 mt-2 leading-relaxed">
+                  Upozornění: Výběr tématu přepíše aktuální barvy, font a zaoblení níže.
+                </p>
               </div>
 
-              {/* BAREVNÁ PALETA */}
-              <div className="space-y-6 mb-8">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-slate-500 border-b border-zinc-100 dark:border-slate-800 pb-2">Barevná paleta</p>
-                <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={toggleWireframe}
+                className={`w-full flex items-center justify-center gap-3 px-4 md:px-6 py-4 rounded-2xl font-bold text-[10px] uppercase tracking-widest transition-all mb-10 border ${
+                  project?.is_wireframe ? 'bg-zinc-50 dark:bg-slate-950 text-zinc-400 border-zinc-200 dark:border-slate-800' : 'text-white border-transparent shadow-lg'
+                }`}
+                style={!project?.is_wireframe ? { backgroundColor: accentColor, boxShadow: `0 10px 20px ${accentColor}30` } : {}}
+              >
+                {project?.is_wireframe ? <EyeOff size={16} /> : <Eye size={16} />}
+                <span className="truncate">{project?.is_wireframe ? 'Mód: Wireframe' : 'Mód: Vizuální Design'}</span>
+              </button>
+
+              <div className="space-y-6 mb-10">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 dark:text-slate-600 border-b border-zinc-100 dark:border-slate-800 pb-2">Barevná paleta</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[{ key: 'bg', label: 'Pozadí' }, { key: 'text', label: 'Text' }, { key: 'accent', label: 'Akcent' }, { key: 'surface', label: 'Karty' }].map(c => (
                     <div key={c.key} className="space-y-2">
-                      <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-slate-500">{c.label}</label>
+                      <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-slate-500 ml-1">{c.label}</label>
                       <div className="flex gap-2">
-                        <input type="color" value={project.color_palette?.[c.key]} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-8 h-8 rounded cursor-pointer border border-zinc-200 dark:border-slate-700 p-0.5 bg-transparent" />
-                        <input type="text" value={project.color_palette?.[c.key]} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-2 text-[10px] font-mono focus:outline-none focus:border-purple-600 text-zinc-900 dark:text-white" />
+                        <input type="color" value={project?.color_palette?.[c.key] || '#ffffff'} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer shrink-0 border border-zinc-200 dark:border-slate-700 bg-transparent" />
+                        <input type="text" value={project?.color_palette?.[c.key] || '#ffffff'} onChange={(e) => updatePalette(c.key, e.target.value)} className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 text-[10px] font-mono min-w-0 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white" />
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* GLOBÁLNÍ STYLY */}
               <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-slate-500 border-b border-zinc-100 dark:border-slate-800 pb-2">Globální styl</p>
-                
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-slate-400 flex items-center gap-2"><Type size={14}/> Nadpisy</span>
-                  <select value={project.design_config?.font_heading} onChange={(e) => updateDesignConfig('font_heading', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none text-zinc-900 dark:text-white">
-                    <option value="Inter">Inter (Modern)</option>
-                    <option value="Lexend">Lexend (Tech)</option>
-                    <option value="Playfair Display">Playfair (Elegant)</option>
-                  </select>
-                </div>
-                
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-slate-400 flex items-center gap-2"><Square size={14}/> Zaoblení</span>
-                  <select value={project.design_config?.radius} onChange={(e) => updateDesignConfig('radius', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none text-zinc-900 dark:text-white">
-                    <option value="0px">Ostré</option>
-                    <option value="0.75rem">Střední</option>
-                    <option value="9999px">Kulaté</option>
-                  </select>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 dark:text-slate-600 border-b border-zinc-100 dark:border-slate-800 pb-2">Globální styl a rozložení</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Type size={14}/> Nadpisy</span>
+                    <select value={project?.design_config?.font_heading || 'Inter'} onChange={(e) => updateDesignConfig('font_heading', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="Inter">Inter (Modern)</option>
+                      <option value="Lexend">Lexend (Geometric)</option>
+                      <option value="Playfair Display">Playfair (Elegant)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Square size={14}/> Zaoblení</span>
+                    <select value={project?.design_config?.radius || '0.75rem'} onChange={(e) => updateDesignConfig('radius', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="0px">Ostré (0px)</option>
+                      <option value="0.75rem">Střední (12px)</option>
+                      <option value="9999px">Kulaté / Full</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><AlignLeft size={14}/> Zarovnání</span>
+                    <select value={project?.design_config?.align || 'center'} onChange={(e) => updateDesignConfig('align', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="left">Doleva</option>
+                      <option value="center">Na střed</option>
+                      <option value="right">Doprava</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-2 text-zinc-500 dark:text-slate-400 whitespace-nowrap"><Maximize size={14}/> Šířka webu</span>
+                    <select value={project?.design_config?.content_width || '60'} onChange={(e) => updateDesignConfig('content_width', e.target.value)} className="bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-lg px-3 py-2 text-[11px] md:text-xs min-w-0 flex-1 ml-2 focus:outline-none focus:border-purple-600 transition-colors text-zinc-900 dark:text-white">
+                      <option value="100">Celá šířka</option>
+                      <option value="80">Široký</option>
+                      <option value="60">Standard</option>
+                      <option value="50">Úzký</option>
+                    </select>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* ROADMAPA */}
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-6 md:p-8 shadow-sm transition-colors">
+               <h3 className="text-xs font-black uppercase tracking-widest mb-6 flex items-center gap-2 text-zinc-900 dark:text-white"><CheckCircle2 size={16} style={{ color: accentColor }}/> Roadmapa a úkoly</h3>
+               <form onSubmit={addTask} className="relative mb-6">
+                 <input type="text" value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="Přidat úkol..." className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-3 text-xs text-zinc-900 dark:text-slate-200 focus:outline-none focus:border-purple-600 transition-all pr-12" />
+                 <button type="submit" className="absolute right-1 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 dark:bg-slate-800 text-white rounded-lg hover:bg-purple-600 transition-all"><Plus className="w-4 h-4" /></button>
+               </form>
+               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                 {project?.tasks?.map((t: any) => (
+                   <div key={t.id} onClick={() => toggleTask(t.id, t.is_completed)} className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-slate-900/50 rounded-xl border border-zinc-100 dark:border-slate-800 text-[11px] cursor-pointer hover:border-zinc-300 dark:hover:border-slate-600 transition-all group">
+                     <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${t.is_completed ? 'bg-purple-600 border-purple-600' : 'border-zinc-300 dark:border-slate-600 bg-white dark:bg-slate-950 group-hover:border-purple-300'}`}>
+                       {t.is_completed && <CheckCircle2 className="w-3 h-3 text-white" />}
+                     </div>
+                     <span className={`break-words ${t.is_completed ? 'line-through text-zinc-400 dark:text-slate-600' : 'text-zinc-700 dark:text-slate-300'}`}>{t.title}</span>
+                   </div>
+                 ))}
+               </div>
             </div>
           </div>
 
@@ -764,53 +878,53 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
             </div>
 
             {/* --- BUILDER KARTY --- */}
-            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm min-h-[600px] transition-colors">
-              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8">
+            <div className="bg-white dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-[3rem] p-6 md:p-10 shadow-sm min-h-[600px] transition-colors">
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8 md:mb-12">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10">
-                     <Layout className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: `${accentColor}15` }}>
+                     <Layout className="w-6 h-6" style={{ color: accentColor }} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black uppercase tracking-tight text-zinc-900 dark:text-white flex items-center gap-3">
-                      Struktura stránky
+                    <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-zinc-900 dark:text-white">Struktura stránky</h2>
+                    <div className="flex items-center gap-3 mt-1">
+                      <p className="text-zinc-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+                        {activePageObj?.title || "Vyberte stránku"}
+                      </p>
                       {!isHomePage && activePageObj && (
-                        <button onClick={deleteActivePage} className="text-rose-400 hover:text-rose-600 p-1.5 bg-rose-50 dark:bg-rose-500/10 rounded-lg transition-colors" title="Smazat tuto stránku">
-                          <Trash2 size={14} />
+                        <button 
+                          onClick={deleteActivePage} 
+                          className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors border border-red-100 dark:border-red-500/20" 
+                          title="Smazat celou tuto stránku"
+                        >
+                          <Trash2 size={12} />
                         </button>
                       )}
-                    </h2>
-                    <p className="text-zinc-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest">
-                      {activePageObj?.title || "Vyberte stránku z menu výše"}
-                    </p>
+                    </div>
                   </div>
                 </div>
 
-                <form onSubmit={addSection} className="flex gap-2 w-full xl:w-auto">
-                  <select 
-                    value={newSection} 
-                    onChange={(e) => setNewSection(e.target.value)} 
-                    className="w-full bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 text-zinc-900 dark:text-white"
-                  >
+                <form onSubmit={addSection} className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+                  <select value={newSection} onChange={(e) => setNewSection(e.target.value)} className="w-full sm:w-auto bg-zinc-50 dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-2xl px-5 py-3 text-sm focus:border-purple-600 outline-none min-w-0 font-medium text-zinc-900 dark:text-white">
                     {Array.from(new Set(availableComponents
                       .filter(c => c.scope.includes(isHomePage ? 'home' : 'sub'))
                       .map(c => c.id.split('-')[0])
                     )).map(category => (
-                      <optgroup key={category} label={category.toUpperCase()} className="font-bold bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400">
+                      <optgroup key={category} label={category.toUpperCase()} className="text-purple-600 dark:text-purple-400 font-bold bg-white dark:bg-slate-900">
                         {availableComponents
                           .filter(c => c.id.startsWith(category + '-') && c.scope.includes(isHomePage ? 'home' : 'sub'))
                           .map(c => (
-                            <option key={c.id} value={c.id} className="font-normal text-zinc-900 dark:text-slate-200">{c.name}</option>
+                            <option key={c.id} value={c.id} className="text-zinc-900 dark:text-slate-200 font-normal">{c.name}</option>
                         ))}
                       </optgroup>
                     ))}
                   </select>
-                  <button type="submit" disabled={!activePageId} className="px-6 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold text-xs uppercase whitespace-nowrap shadow-sm hover:opacity-90 disabled:opacity-50">
-                    Přidat
+                  <button disabled={!activePageId} type="submit" className="w-full sm:w-auto text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase transition-all whitespace-nowrap shrink-0 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100" style={{ backgroundColor: accentColor, boxShadow: `0 5px 15px ${accentColor}30` }}>
+                    + Přidat sekci
                   </button>
                 </form>
               </div>
 
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4">
                 <AnimatePresence>
                   {activeSections.map((section: any, index: number) => (
                     <BuilderSectionCard
@@ -826,9 +940,9 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
                     />
                   ))}
                 </AnimatePresence>
-                
+
                 {activeSections.length === 0 && (
-                  <div className="py-20 border-2 border-dashed border-zinc-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-zinc-400 dark:text-slate-500 bg-zinc-50 dark:bg-slate-900/30">
+                  <div className="py-20 border-2 border-dashed border-zinc-200 dark:border-slate-800 rounded-[3rem] flex flex-col items-center justify-center text-zinc-400 dark:text-slate-500 bg-zinc-50/50 dark:bg-slate-900/30">
                     <Layers className="w-12 h-12 mb-4 opacity-30" />
                     <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Tato stránka je prázdná. Přidejte první sekci.</p>
                   </div>
@@ -840,28 +954,27 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
         </div>
       </div>
       
-      {/* MODAL PRO SMAZÁNÍ */}
+      {/* --- MODALY --- */}
       <AnimatePresence>
         {sectionToDelete && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSectionToDelete(null)} className="absolute inset-0 bg-zinc-900/40 dark:bg-slate-950/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl text-center">
-              <div className="w-16 h-16 bg-rose-50 dark:bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} /></div>
+              <div className="w-16 h-16 bg-red-50 dark:bg-rose-500/10 text-red-500 dark:text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} /></div>
               <h3 className="text-xl font-black uppercase tracking-tighter mb-2 text-zinc-900 dark:text-white">Odstranit sekci?</h3>
               <p className="text-zinc-500 dark:text-slate-400 text-sm mb-8 leading-relaxed">Tato akce je nevratná. Sekce bude trvale odstraněna.</p>
               <div className="flex flex-col gap-3">
-                <button onClick={confirmDeleteSection} className="w-full py-4 bg-rose-500 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20">Ano, smazat</button>
-                <button onClick={() => setSectionToDelete(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
+                <button onClick={confirmDeleteSection} className="w-full py-4 bg-red-500 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-red-600 transition-all shadow-lg shadow-red-500/20">Ano, smazat</button>
+                <button onClick={() => setSectionToDelete(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-400 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* MODAL PRO ZMĚNU THEME */}
       <AnimatePresence>
         {themeToApply && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setThemeToApply(null)} className="absolute inset-0 bg-zinc-900/40 dark:bg-slate-950/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl text-center">
               <div className="w-16 h-16 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-full flex items-center justify-center mx-auto mb-6"><Sparkles size={32} /></div>
@@ -869,12 +982,39 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
               <p className="text-zinc-500 dark:text-slate-400 text-sm mb-8 leading-relaxed">Opravdu chcete přepsat aktuální barvy a styly presetem <strong className="text-zinc-800 dark:text-slate-200">{THEME_PRESETS[themeToApply]?.name}</strong>?</p>
               <div className="flex flex-col gap-3">
                 <button onClick={confirmApplyTheme} className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20">Ano, aplikovat styl</button>
-                <button onClick={() => setThemeToApply(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
+                <button onClick={() => setThemeToApply(null)} className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-400 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all">Zrušit</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {toast.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[10002] flex items-center gap-5 px-6 py-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)]"
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${toast.type === 'success' ? 'bg-green-50 dark:bg-emerald-500/10 text-green-500 dark:text-emerald-500' : 'bg-red-50 dark:bg-rose-500/10 text-red-500 dark:text-rose-500'}`}>
+                {toast.type === 'success' ? <CheckCircle2 size={18} /> : <Trash2 size={18} />}
+              </div>
+              <div className="flex flex-col">
+                <p className="text-sm font-bold text-zinc-900 dark:text-white leading-none">{toast.message}</p>
+                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mt-1">Synchronizováno s DB</p>
+              </div>
+            </div>
+            {toast.type === 'success' && project?.slug && (
+              <div className="pl-5 border-l border-zinc-100 dark:border-slate-800">
+                <Link href={previewUrl || '#'} target="_blank" onClick={() => setToast({ ...toast, show: false })} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 px-4 py-2.5 rounded-xl">
+                  Na web <ExternalLink size={12} />
+                </Link>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
@@ -4984,12 +5124,27 @@ export default function ServicesUtilitarian({
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { DollarSign, Clock, AlertTriangle, FileText, UserSquare, TrendingUp, Plus, Trash2, Edit3, Eye } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { 
+  DollarSign, Clock, AlertTriangle, FileText, UserSquare, TrendingUp, 
+  Plus, Trash2, Edit3, Eye, Smartphone, X, Settings2, ShoppingCart, QrCode 
+} from 'lucide-react';
 
 export default function BillingModule() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [invoiceFilter, setInvoiceFilter] = useState('vse');
   const [loading, setLoading] = useState(true);
+
+  // --- STAVY PRO RYCHLOU PLATBU (POS TERMINÁL) ---
+  const [isPosOpen, setIsPosOpen] = useState(false);
+  const [posTotal, setPosTotal] = useState<number>(0);
+  const [posCart, setPosCart] = useState<{name: string, price: number}[]>([]);
+  const [customPosAmount, setCustomPosAmount] = useState<string>('');
+  const [customPosName, setCustomPosName] = useState<string>('Vlastní částka');
+  
+  const [posServices, setPosServices] = useState<{id: string, name: string, price: number}[]>([]);
+  const [isEditingPos, setIsEditingPos] = useState(false);
+  const [newPosService, setNewPosService] = useState({name: '', price: ''});
 
   useEffect(() => {
     const fetchInvoices = async () => {
@@ -5013,6 +5168,11 @@ export default function BillingModule() {
       setLoading(false);
     };
     fetchInvoices();
+
+    const savedPosServices = localStorage.getItem('chameleon_pos_services');
+    if (savedPosServices) {
+      setPosServices(JSON.parse(savedPosServices));
+    }
   }, []);
 
   const handleInvoiceDelete = async (id: string) => {
@@ -5027,6 +5187,47 @@ export default function BillingModule() {
     if (error) alert(error.message);
     else setInvoices(invoices.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv));
   };
+
+  const savePosServices = (services: any[]) => {
+    setPosServices(services);
+    localStorage.setItem('chameleon_pos_services', JSON.stringify(services));
+  };
+
+  const handleAddPosService = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPosService.name || !newPosService.price) return;
+    const updated = [...posServices, { id: Date.now().toString(), name: newPosService.name, price: Number(newPosService.price) }];
+    savePosServices(updated);
+    setNewPosService({ name: '', price: '' });
+  };
+
+  const handleDeletePosService = (id: string) => {
+    const updated = posServices.filter(s => s.id !== id);
+    savePosServices(updated);
+  };
+
+  const addToCart = (name: string, price: number) => {
+    setPosCart([...posCart, { name, price }]);
+    setPosTotal(prev => prev + price);
+  };
+
+  const addCustomToCart = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customPosAmount) return;
+    const price = Number(customPosAmount);
+    setPosCart([...posCart, { name: customPosName || 'Vlastní částka', price }]);
+    setPosTotal(prev => prev + price);
+    setCustomPosAmount('');
+    setCustomPosName('Vlastní částka');
+  };
+
+  const clearCart = () => {
+    setPosCart([]);
+    setPosTotal(0);
+  };
+
+  const posIban = process.env.NEXT_PUBLIC_IBAN || 'CZ0000000000000000000000';
+  const posSpaydString = `SPD*1.0*ACC:${posIban}*AM:${posTotal.toFixed(2)}*CC:CZK*MSG:Rychla platba`;
 
   const filteredInvoices = invoices.filter(inv => invoiceFilter === 'vse' || inv.status === invoiceFilter);
 
@@ -5044,20 +5245,152 @@ export default function BillingModule() {
 
   return (
     <div className="animate-in fade-in duration-300">
+      
+      {/* POS TERMINÁL (Modal) */}
+      {isPosOpen && (
+        <div className="fixed inset-0 z-[100] bg-zinc-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <div className="w-full md:w-3/5 bg-zinc-50 dark:bg-slate-900 flex flex-col h-[60vh] md:h-auto overflow-hidden">
+              <div className="p-6 border-b border-zinc-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-950">
+                <h2 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-amber-500" /> Pokladna
+                </h2>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setIsEditingPos(!isEditingPos)} className={`p-2 rounded-xl transition-colors ${isEditingPos ? 'bg-amber-500/20 text-amber-500' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-slate-800'}`}>
+                    <Settings2 className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => setIsPosOpen(false)} className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors md:hidden">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 flex-grow overflow-y-auto">
+                {isEditingPos ? (
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Správa přednastavených služeb</h3>
+                      <form onSubmit={handleAddPosService} className="flex gap-2 mb-6">
+                        <input type="text" value={newPosService.name} onChange={e => setNewPosService({...newPosService, name: e.target.value})} placeholder="Název" className="flex-1 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
+                        <input type="number" value={newPosService.price} onChange={e => setNewPosService({...newPosService, price: e.target.value})} placeholder="Cena" className="w-24 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
+                        <button type="submit" className="bg-amber-600 text-white px-3 rounded-xl hover:bg-amber-500"><Plus className="w-5 h-5" /></button>
+                      </form>
+                    </div>
+                    <div className="space-y-2">
+                      {posServices.map(srv => (
+                        <div key={srv.id} className="flex justify-between items-center p-3 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl">
+                          <span className="font-bold text-sm text-zinc-900 dark:text-slate-200">{srv.name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-black text-amber-600 dark:text-amber-500">{srv.price} Kč</span>
+                            <button onClick={() => handleDeletePosService(srv.id)} className="text-zinc-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-8">
+                    {posServices.length > 0 && (
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">Rychlá volba</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          {posServices.map(srv => (
+                            <button 
+                              key={srv.id} 
+                              onClick={() => addToCart(srv.name, srv.price)}
+                              className="p-4 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-2xl text-left hover:border-amber-400 transition-colors shadow-sm active:scale-95"
+                            >
+                              <div className="font-bold text-zinc-900 dark:text-slate-200 text-sm mb-1 truncate">{srv.name}</div>
+                              <div className="font-black text-amber-600 dark:text-amber-500">{srv.price} Kč</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">Vlastní částka</h3>
+                      <form onSubmit={addCustomToCart} className="flex gap-2">
+                        <input type="text" value={customPosName} onChange={e => setCustomPosName(e.target.value)} placeholder="Popis..." className="flex-1 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white" />
+                        <input type="number" value={customPosAmount} onChange={e => setCustomPosAmount(e.target.value)} placeholder="0 Kč" className="w-28 bg-white dark:bg-slate-950 border border-zinc-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm outline-none focus:border-amber-500 text-zinc-900 dark:text-white font-black" />
+                        <button type="submit" className="bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 px-4 rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all">Přidat</button>
+                      </form>
+                    </div>
+
+                    {posCart.length > 0 && (
+                      <div className="border-t border-zinc-200 dark:border-slate-800 pt-6">
+                        <div className="flex justify-between items-end mb-4">
+                          <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Účtenka</h3>
+                          <button onClick={clearCart} className="text-[10px] uppercase font-bold text-rose-500 hover:text-rose-600">Vymazat</button>
+                        </div>
+                        <div className="space-y-2 mb-4">
+                          {posCart.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-sm">
+                              <span className="text-zinc-700 dark:text-slate-300">{item.name}</span>
+                              <span className="font-bold text-zinc-900 dark:text-white">{item.price} Kč</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="w-full md:w-2/5 bg-zinc-900 dark:bg-slate-950 p-8 flex flex-col items-center justify-center text-center relative border-l border-zinc-800 h-[40vh] md:h-auto">
+              <button onClick={() => setIsPosOpen(false)} className="absolute top-6 right-6 p-2 text-zinc-500 hover:text-white transition-colors hidden md:block">
+                <X className="w-6 h-6" />
+              </button>
+              
+              <div className="mb-8">
+                <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs mb-2">K úhradě celkem</p>
+                <p className="text-5xl font-black text-amber-500">{posTotal} Kč</p>
+              </div>
+
+              <div className="bg-white p-4 rounded-3xl shadow-[0_0_40px_rgba(245,158,11,0.15)] relative">
+                {posTotal > 0 ? (
+                  <QRCodeSVG value={posSpaydString} size={200} />
+                ) : (
+                  <div className="w-[200px] h-[200px] flex flex-col items-center justify-center bg-zinc-100 rounded-2xl text-zinc-400">
+                    <QrCode className="w-12 h-12 mb-2 opacity-50" />
+                    <span className="text-xs font-bold uppercase text-center px-4">Přidejte položku<br/>pro vygenerování</span>
+                  </div>
+                )}
+              </div>
+              
+              <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-8 flex items-center gap-2">
+                <Smartphone className="w-4 h-4"/> Naskenujte v bankovní aplikaci
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HLAVIČKA MODULU */}
       <header className="mb-10 flex flex-col md:flex-row md:justify-between md:items-end gap-6">
         <div>
           <h1 className="text-4xl font-extrabold mb-1 text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-500 dark:from-amber-400 dark:to-orange-400">Fakturační přehled</h1>
           <p className="text-zinc-500 dark:text-slate-400 text-sm font-medium">Správa dokladů, záloh a klientů</p>
         </div>
         <div className="flex flex-wrap md:flex-nowrap gap-3 w-full md:w-auto">
-          <div className="flex gap-3 w-full md:w-auto">
-            <Link href="/klienti" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-100 dark:bg-slate-900 hover:bg-zinc-200 dark:hover:bg-slate-800 text-zinc-700 dark:text-slate-300 rounded-xl font-bold transition-colors text-sm border border-zinc-200 dark:border-slate-800"><UserSquare className="w-4 h-4" /> Adresář</Link>
-            <Link href="/prehled" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-800 dark:bg-slate-800 hover:bg-zinc-700 dark:hover:bg-slate-700 text-white rounded-xl font-bold transition-colors text-sm border border-zinc-700 dark:border-slate-700"><TrendingUp className="w-4 h-4" /> Přehled</Link>
-          </div>
+          <button 
+            onClick={() => setIsPosOpen(true)}
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 rounded-xl font-bold transition-all text-sm whitespace-nowrap shadow-lg shadow-zinc-900/20"
+          >
+            <Smartphone className="w-4 h-4" /> Platba ihned
+          </button>
+
+          <Link href="/klienti" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-100 dark:bg-slate-900 hover:bg-zinc-200 dark:hover:bg-slate-800 text-zinc-700 dark:text-slate-300 rounded-xl font-bold transition-colors text-sm border border-zinc-200 dark:border-slate-800"><UserSquare className="w-4 h-4" /> Adresář</Link>
+          
+          {/* PŘIDÁNO: Zpět odkaz na Finanční přehled */}
+          <Link href="/prehled" className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-800 dark:bg-slate-800 hover:bg-zinc-700 dark:hover:bg-slate-700 text-white rounded-xl font-bold transition-colors text-sm border border-zinc-700 dark:border-slate-700"><TrendingUp className="w-4 h-4" /> Přehled</Link>
+          
           <Link href="/nova-faktura" className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold transition-colors text-sm whitespace-nowrap shadow-lg shadow-amber-500/20 dark:shadow-none"><Plus className="w-4 h-4" /> Faktura</Link>
         </div>
       </header>
 
+      {/* ... zbytek souboru (statistiky a tabulka) zůstává stejný ... */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         {[
           { label: 'Obrat (30 dní)', value: `${invoices.filter(i => i.status === 'zaplaceno').reduce((s, i) => s + Number(i.total_amount), 0).toLocaleString('cs-CZ')} Kč`, icon: <DollarSign className="w-6 h-6 text-emerald-500 dark:text-emerald-400" /> },              
@@ -7175,32 +7508,119 @@ export default function SettingsModule({ enabledModules, toggleModule, onLogout,
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShieldAlert, Users, Server, Zap, Globe, Activity } from 'lucide-react';
-import Link from 'next/link';
+// Importujeme nový hook pro hezká potvrzovací okna
+import { useConfirm } from '@/lib/components/ConfirmProvider';
+import { 
+  ShieldAlert, Users, Server, Zap, Globe, 
+  Trash2, UserX, ExternalLink, AlertTriangle, 
+  Clock
+} from 'lucide-react';
+
+const ALL_AVAILABLE_MODULES = [
+  { id: 'web', label: 'Weby' },
+  { id: 'photo', label: 'Foto' },
+  { id: 'quotes', label: 'Nabídky' },
+  { id: 'billing', label: 'Faktury' },
+  { id: 'bookings', label: 'Schůzky' },
+  { id: 'content', label: 'Obsah' }
+];
 
 export default function SuperadminModule() {
+  // Inicializujeme potvrzovací modal
+  const confirm = useConfirm();
+  
+  const [clients, setClients] = useState<any[]>([]);
+  const [urgentInvoices, setUrgentInvoices] = useState<any[]>([]);
+  const [newBookings, setNewBookings] = useState<any[]>([]);
+  
   const [stats, setStats] = useState({
     totalClients: 0,
     totalProjects: 0,
     demoProjects: 0,
     liveProjects: 0
   });
-
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Tady pak dopíšeme reálné tahání ze Supabase
-    // Pro teď jen placeholder, aby se to načetlo
-    setTimeout(() => {
-      setStats({
-        totalClients: 12,
-        totalProjects: 28,
-        demoProjects: 15,
-        liveProjects: 13
-      });
-      setLoading(false);
-    }, 500);
+    fetchSuperadminData();
   }, []);
+
+  async function fetchSuperadminData() {
+    setLoading(true);
+    
+    // 1. Načteme profily a projekty
+    const { data: profiles, error: pError } = await supabase
+      .from('profiles')
+      .select('*, projects(id, status)');
+
+    if (pError) {
+      console.error("❌ Superadmin: Chyba při načítání profilů:", pError);
+    } else {
+      setClients(profiles || []);
+      
+      // Výpočet statistik
+      if (profiles) {
+          const totalProjs = profiles.reduce((acc, p) => acc + (p.projects?.length || 0), 0);
+          const demoProjs = profiles.reduce((acc, p) => 
+            acc + (p.projects?.filter((prj: any) => prj.status === 'rozpracovano').length || 0), 0);
+
+          setStats({
+            totalClients: profiles.length,
+            totalProjects: totalProjs,
+            demoProjects: demoProjs,
+            liveProjects: totalProjs - demoProjs
+          });
+      }
+    }
+
+    // Načtení urgentních věcí
+    const { data: invoices } = await supabase.from('invoices').select('*, billing_clients(name)').eq('status', 'po_splatnosti').limit(5);
+    const { data: bookings } = await supabase.from('bookings').select('*').eq('status', 'nova').limit(5);
+
+    if (invoices) setUrgentInvoices(invoices);
+    if (bookings) setNewBookings(bookings);
+
+    setLoading(false);
+  }
+
+  // Funkce zapíná/vypíná moduly klientům
+  async function toggleClientModule(clientId: string, moduleId: string, currentModules: string[]) {
+    const isEnabled = currentModules.includes(moduleId);
+    const newModules = isEnabled 
+      ? currentModules.filter(id => id !== moduleId) 
+      : [...currentModules, moduleId];
+
+    const { error } = await supabase.from('profiles').update({ active_modules: newModules }).eq('id', clientId);
+    if (!error) {
+      setClients(clients.map(c => c.id === clientId ? { ...c, active_modules: newModules } : c));
+    } else {
+      alert("Chyba při aktualizaci modulů: " + error.message);
+    }
+  }
+
+  // Funkce na mazání klientů pomocí nového Vizuálního okna
+  async function handleDeleteClient(clientId: string, clientIdentifier: string) {
+    // Nahradili jsme window.confirm naším moderním hookem
+    const isConfirmed = await confirm({
+      title: 'Smazat klientský účet?',
+      message: `Opravdu chcete trvale smazat klienta "${clientIdentifier}"?\n\nTato akce odstraní i všechny jeho weby a vygenerovaná data.`,
+      confirmText: 'Ano, smazat účet',
+      cancelText: 'Zrušit',
+      type: 'danger'
+    });
+
+    if (!isConfirmed) return; // Pokud uživatel zrušil, ukončíme funkci
+
+    // Vlastní proces smazání
+    const { error } = await supabase.from('profiles').delete().eq('id', clientId);
+
+    if (error) {
+      alert('Chyba při mazání klienta: ' + error.message);
+    } else {
+      setClients(clients.filter(c => c.id !== clientId));
+      fetchSuperadminData();
+    }
+  }
 
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center text-zinc-500 font-bold uppercase tracking-widest text-xs">Načítám God Mode...</div>;
 
@@ -7213,37 +7633,164 @@ export default function SuperadminModule() {
             <ShieldAlert size={14} /> Superadmin Access
           </div>
           <h1 className="text-4xl font-extrabold mb-1 text-zinc-900 dark:text-white tracking-tight">Mission Control</h1>
-          <p className="text-zinc-500 dark:text-slate-400 text-sm font-medium">Přehled o všech klientech a projektech v ekosystému.</p>
+          <p className="text-zinc-500 dark:text-slate-400 text-sm font-medium">Správa celého ekosystému Chameleon OS.</p>
         </div>
       </header>
 
-      {/* STATISTIKY */}
+      {/* Rychlé Statistiky */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800 shadow-sm dark:shadow-none transition-colors">
-          <div className="text-zinc-500 dark:text-slate-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><Users className="w-3.5 h-3.5 mr-2 text-blue-500" /> Registrovaní klienti</div>
-          <div className="text-4xl font-black text-zinc-900 dark:text-white">{stats.totalClients}</div>
+        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800">
+          <div className="text-zinc-500 text-xs font-bold uppercase mb-2 flex items-center"><Users className="w-3.5 h-3.5 mr-2 text-blue-500" /> Klienti</div>
+          <div className="text-4xl font-black">{stats.totalClients}</div>
         </div>
-        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800 shadow-sm dark:shadow-none transition-colors">
-          <div className="text-zinc-500 dark:text-slate-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><Server className="w-3.5 h-3.5 mr-2 text-purple-500" /> Všechny projekty</div>
-          <div className="text-4xl font-black text-zinc-900 dark:text-white">{stats.totalProjects}</div>
+        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800">
+          <div className="text-zinc-500 text-xs font-bold uppercase mb-2 flex items-center"><Server className="w-3.5 h-3.5 mr-2 text-purple-500" /> Projekty</div>
+          <div className="text-4xl font-black">{stats.totalProjects}</div>
         </div>
-        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800 shadow-sm dark:shadow-none transition-colors">
-          <div className="text-zinc-500 dark:text-slate-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><Zap className="w-3.5 h-3.5 mr-2 text-amber-500" /> V Demo režimu</div>
-          <div className="text-4xl font-black text-zinc-900 dark:text-white">{stats.demoProjects}</div>
+        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800">
+          <div className="text-zinc-500 text-xs font-bold uppercase mb-2 flex items-center"><Zap className="w-3.5 h-3.5 mr-2 text-amber-500" /> Demo režim</div>
+          <div className="text-4xl font-black text-amber-500">{stats.demoProjects}</div>
         </div>
-        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800 shadow-sm dark:shadow-none transition-colors">
-          <div className="text-zinc-500 dark:text-slate-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><Globe className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Ostrý provoz</div>
-          <div className="text-4xl font-black text-zinc-900 dark:text-white">{stats.liveProjects}</div>
+        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-zinc-200 dark:border-slate-800">
+          <div className="text-zinc-500 text-xs font-bold uppercase mb-2 flex items-center"><Globe className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Ostrý provoz</div>
+          <div className="text-4xl font-black text-emerald-500">{stats.liveProjects}</div>
         </div>
       </div>
 
-      {/* TADY PAK BUDE TABULKA KLIENTŮ A PROJEKTŮ */}
-      <div className="bg-white dark:bg-slate-900/40 rounded-3xl border border-zinc-200 dark:border-slate-800 p-8 shadow-sm dark:shadow-none text-center">
-        <Activity className="w-12 h-12 text-zinc-300 dark:text-slate-700 mx-auto mb-4" />
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-2">Správa klientských účtů</h3>
-        <p className="text-zinc-500 dark:text-slate-400 text-sm max-w-md mx-auto">
-          Jakmile nastavíme RLS (Row Level Security) v Supabase, tady uvidíš výpis všech tvých klientů. Budeš jim tu moct zapínat moduly a měnit stavy jejich projektů z Dema do Ostré verze.
-        </p>
+      {/* ACTION CENTER (Co hoří) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white dark:bg-slate-900/40 rounded-3xl border border-rose-200 dark:border-rose-900/30 p-6 shadow-sm">
+          <h2 className="text-sm font-bold text-rose-500 uppercase tracking-widest mb-5 flex items-center">
+            <AlertTriangle className="w-4 h-4 mr-2" /> Faktury po splatnosti
+          </h2>
+          <div className="space-y-3">
+            {urgentInvoices.length === 0 ? (
+              <p className="text-sm text-zinc-400">Všechny faktury jsou uhrazeny. Peníze tečou!</p>
+            ) : (
+              urgentInvoices.map(inv => (
+                <div key={inv.id} className="flex justify-between items-center p-3 bg-rose-50 dark:bg-rose-500/10 rounded-xl border border-rose-100 dark:border-rose-500/20">
+                  <div>
+                    <div className="font-bold text-zinc-900 dark:text-zinc-200 text-sm">{inv.billing_clients?.name || 'Neznámý klient'}</div>
+                    <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">Splatnost: {new Date(inv.due_date).toLocaleDateString('cs-CZ')}</div>
+                  </div>
+                  <div className="font-black text-rose-600 dark:text-rose-400">{Number(inv.total_amount).toLocaleString('cs-CZ')} Kč</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900/40 rounded-3xl border border-cyan-200 dark:border-cyan-900/30 p-6 shadow-sm">
+          <h2 className="text-sm font-bold text-cyan-500 uppercase tracking-widest mb-5 flex items-center">
+            <Clock className="w-4 h-4 mr-2" /> Nové poptávky / schůzky
+          </h2>
+          <div className="space-y-3">
+            {newBookings.length === 0 ? (
+              <p className="text-sm text-zinc-400">Žádné nové poptávky.</p>
+            ) : (
+              newBookings.map(book => (
+                <div key={book.id} className="flex justify-between items-center p-3 bg-cyan-50 dark:bg-cyan-500/10 rounded-xl border border-cyan-100 dark:border-cyan-500/20">
+                  <div>
+                    <div className="font-bold text-zinc-900 dark:text-zinc-200 text-sm">{book.client_name}</div>
+                    <div className="text-xs text-cyan-600 dark:text-cyan-400 font-medium">{new Date(book.booking_date).toLocaleDateString('cs-CZ')}</div>
+                  </div>
+                  <div className="text-xs font-bold uppercase bg-white dark:bg-slate-900 text-cyan-600 px-3 py-1 rounded-md shadow-sm">Nová</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* TABULKA KLIENTŮ */}
+      <h3 className="text-xl font-extrabold mb-4 text-zinc-900 dark:text-white tracking-tight">Správa Klientských Účtů</h3>
+      <div className="bg-white dark:bg-slate-900/40 rounded-[2.5rem] border border-zinc-200 dark:border-slate-800 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-zinc-50 dark:bg-slate-900/60 border-b border-zinc-100 dark:border-slate-800 text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                <th className="px-8 py-5">ID / Účet</th>
+                <th className="px-6 py-5 text-center">Aktivní Moduly</th>
+                <th className="px-6 py-5 text-center">Weby</th>
+                <th className="px-6 py-5 text-right">Akce</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-50 dark:divide-slate-800/50">
+              {clients.map((client) => (
+                <tr key={client.id} className="group hover:bg-zinc-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                  <td className="px-8 py-6">
+                    <div className="flex items-center gap-4">
+                      {/* Avatar */}
+                      <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-slate-800 flex items-center justify-center font-bold text-zinc-500 uppercase shrink-0">
+                        {client.full_name ? client.full_name.charAt(0) : (client.email ? client.email.charAt(0) : client.id.slice(0, 1))}
+                      </div>
+                      
+                      <div>
+                        {/* Jméno a odznáček */}
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                          {client.full_name || 'Bezejmenný klient'}
+                          {client.role === 'superadmin' && (
+                            <span title="Superadmin" className="flex items-center"><ShieldAlert size={12} className="text-red-500" /></span>
+                          )}
+                        </div>
+                        {/* E-mail */}
+                        <div className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">
+                          {client.email || 'E-mail nezadán'}
+                        </div>
+                        {/* Typ uživatele */}
+                        <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mt-1">
+                          {client.user_type || 'Typ neurčený'}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  
+                  <td className="px-6 py-6">
+                    <div className="flex justify-center gap-1.5 flex-wrap max-w-sm mx-auto">
+                      {ALL_AVAILABLE_MODULES.map(mod => {
+                        const isEnabled = client.active_modules?.includes(mod.id);
+                        return (
+                          <button
+                            key={mod.id}
+                            onClick={() => toggleClientModule(client.id, mod.id, (client.active_modules as string[]) || [])}
+                            className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-tighter border transition-all ${
+                              isEnabled 
+                                ? 'bg-purple-500/10 text-purple-500 border-purple-500/20 shadow-sm' 
+                                : 'bg-zinc-100 dark:bg-slate-800 text-zinc-400 border-transparent opacity-40 hover:opacity-100'
+                            }`}
+                          >
+                            {mod.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
+
+                  <td className="px-6 py-6 text-center">
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-zinc-100 dark:bg-slate-800 text-xs font-black text-zinc-600 dark:text-zinc-300">
+                      {client.projects?.length || 0}
+                    </span>
+                  </td>
+
+                  <td className="px-8 py-6 text-right">
+                    <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="p-2 text-zinc-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg" title="Přihlásit se jako (Impersonate) - Připravujeme">
+                        <ExternalLink size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteClient(client.id, client.full_name || client.email || 'Neznámý klient')}
+                        className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors" 
+                        title="Smazat klienta a jeho data"
+                      >
+                        <UserX size={18} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
@@ -7522,8 +8069,8 @@ export default function DashboardPage() {
         .eq('id', user.id)
         .single();
 
-        console.log("Můj profil načtený z DB:", profile); // TADY SE PODÍVEJ DO KONZOLE (F12)
-
+       console.log("Můj profil načtený z DB:", profile, "Chyba:", error);
+       
       if (profile) {
         setUserProfile(profile);
         // UPRAVENO: Uložení role do state
@@ -7748,24 +8295,29 @@ export default function DashboardPage() {
 </file>
 
 <file path="app/demo/[project_slug]/[[...page_slug]]/page.tsx">
+// src/app/demo/[project_slug]/[[...page_slug]]/page.tsx
 import { supabase } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import { ComponentRegistry } from "@/lib/component-registry";
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function DynamicProjectPage({ params }: { params: Promise<{ project_slug: string, page_slug?: string[] }> }) {
   const resolvedParams = await params;
   const projectSlug = resolvedParams.project_slug;
   const pageSlug = resolvedParams.page_slug ? resolvedParams.page_slug[0] : null;
 
-  // 1. Změna na tabulku 'projects'
+  // OPRAVA 1: Načteme z DB i color_palette a design_config
   const { data: project } = await supabase
-    .from('projects')
+    .from('client_projects')
     .select('id, client_name, color_palette, design_config, is_wireframe')
     .eq('slug', projectSlug)
     .single();
     
   if (!project) notFound();
 
+  // OPRAVA 2: Připravíme si proměnné pro komponenty
   const isWireframe = project.is_wireframe;
   const activeColorPalette = isWireframe ? { bg: '#ffffff', text: '#000000', accent: '#000000', surface: '#f4f4f5' } : project.color_palette;
   const activeDesignConfig = isWireframe ? { radius: '0px', font_heading: 'Inter' } : project.design_config;
@@ -7792,8 +8344,8 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
   return (
     <main className="flex-grow flex flex-col relative">
       {(!finalSections || finalSections.length === 0) && (
-        <div className="flex items-center justify-center min-h-screen bg-zinc-50">
-          <p className="text-zinc-400 font-medium uppercase tracking-widest text-xs">Stránka je prázdná</p>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <p className="text-zinc-400 font-medium uppercase tracking-widest text-xs">Prázdná stránka</p>
         </div>
       )}
 
@@ -7808,6 +8360,7 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
             projectName={project.client_name}
             allPages={allPages || []}
             projectSlug={projectSlug}
+            // OPRAVA 3: Pošleme barvy a design přímo do komponent, aby nespouštěly svůj fialový fallback
             colorPalette={activeColorPalette}
             designConfig={activeDesignConfig}
           />
@@ -10738,7 +11291,9 @@ export default function WebDetail() {
 </file>
 
 <file path="app/globals.css">
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=Lexend:wght@300;400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap');
 @import "tailwindcss";
+
 @variant dark (&:where(.dark, .dark *));
 
 @theme inline {
@@ -10773,26 +11328,24 @@ body {
 
 <file path="app/layout.tsx">
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Jost, Playfair_Display } from "next/font/google";
 import "./globals.css";
-// Přidán import našeho hlídače a theme provideru
-import AuthGuard from "../lib/components/AuthGuard";
-import { ThemeProvider } from "../lib/components/ThemeProvider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const fontJost = Jost({ 
+  subsets: ["latin", "latin-ext"],
+  variable: '--font-jost',
+  display: 'swap',
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const fontPlayfair = Playfair_Display({ 
+  subsets: ["latin", "latin-ext"],
+  variable: '--font-playfair',
+  display: 'swap',
 });
 
-// Upravené titulky pro tvou aplikaci
 export const metadata: Metadata = {
-  title: "Chameleon OS - Radek Čech",
-  description: "Interní CRM, web builder a fakturační systém",
+  title: "Digitální tvůrce",
+  description: "Moderní weby a SEO, které fungují",
 };
 
 export default function RootLayout({
@@ -10801,31 +11354,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="cs" 
-      // Přidána výchozí třída dark a suppressHydrationWarning kvůli ThemeProvideru
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
-      suppressHydrationWarning
-    >
-      <body className="min-h-full flex flex-col">
-        {/* Obalení celé aplikace do ThemeProvideru a AuthGuardu */}
-        <ThemeProvider>
-          <AuthGuard>
-            {children}
-          </AuthGuard>
-        </ThemeProvider>
+    <html lang="cs" className="scroll-smooth">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=Lexend:wght@300;400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet" />
+      </head>
+      <body 
+        className={`${fontJost.variable} ${fontPlayfair.variable} font-sans antialiased min-h-screen selection:bg-dt-accent/40 selection:text-white`}
+        suppressHydrationWarning
+      >   
+        {children}
       </body>
     </html>
   );
-
-  // Bude to vypadat takto:
-<body className="min-h-full flex flex-col" suppressHydrationWarning>
-  <ThemeProvider>
-    <AuthGuard>
-      {children}
-    </AuthGuard>
-  </ThemeProvider>
-</body>
 }
 </file>
 
@@ -11490,6 +12032,112 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 </file>
 
+<file path="lib/components/ConfirmProvider.tsx">
+'use client';
+
+import { createContext, useContext, useState, ReactNode } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Trash2, AlertTriangle } from 'lucide-react';
+
+type ConfirmOptions = {
+  title?: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  type?: 'danger' | 'warning';
+};
+
+type ConfirmContextType = (options: ConfirmOptions) => Promise<boolean>;
+
+// Výchozí prázdná funkce
+const ConfirmContext = createContext<ConfirmContextType>(() => Promise.resolve(false));
+
+export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [options, setOptions] = useState<ConfirmOptions | null>(null);
+  
+  // Tohle je kouzlo, které "zastaví" kód, dokud uživatel neklikne
+  const [resolver, setResolver] = useState<((value: boolean) => void) | null>(null);
+
+  const confirm = (opts: ConfirmOptions): Promise<boolean> => {
+    setOptions(opts);
+    setIsOpen(true);
+    return new Promise((resolve) => {
+      setResolver(() => resolve);
+    });
+  };
+
+  const handleConfirm = () => {
+    if (resolver) resolver(true);
+    setIsOpen(false);
+  };
+
+  const handleCancel = () => {
+    if (resolver) resolver(false);
+    setIsOpen(false);
+  };
+
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      <AnimatePresence>
+        {isOpen && options && (
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={handleCancel}
+              className="absolute inset-0 bg-zinc-900/60 dark:bg-slate-950/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl text-center"
+            >
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${options.type === 'warning' ? 'bg-amber-50 text-amber-500 dark:bg-amber-500/10' : 'bg-red-50 text-red-500 dark:bg-red-500/10'}`}>
+                {options.type === 'warning' ? <AlertTriangle size={32} /> : <Trash2 size={32} />}
+              </div>
+              
+              <h3 className="text-xl font-black uppercase tracking-tighter mb-2 text-zinc-900 dark:text-white">
+                {options.title || 'Odstranit záznam?'}
+              </h3>
+              
+              <p className="text-zinc-500 dark:text-slate-400 text-sm mb-8 leading-relaxed whitespace-pre-line">
+                {options.message}
+              </p>
+              
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleConfirm}
+                  className={`w-full py-4 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] transition-all shadow-lg hover:scale-[1.02] active:scale-[0.98] ${
+                    options.type === 'warning' 
+                      ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' 
+                      : 'bg-red-500 hover:bg-red-600 shadow-red-500/20'
+                  }`}
+                >
+                  {options.confirmText || 'Ano, smazat'}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="w-full py-4 bg-zinc-50 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:text-zinc-900 dark:hover:text-white transition-all"
+                >
+                  {options.cancelText || 'Zrušit'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </ConfirmContext.Provider>
+  );
+}
+
+// Hook, který budeme volat ve všech našich modulech
+export const useConfirm = () => useContext(ConfirmContext);
+</file>
+
 <file path="lib/components/ThemeProvider.tsx">
 'use client';
 
@@ -12107,11 +12755,12 @@ export function middleware(req: NextRequest) {
 
   // --- LOGIKA PRO MARKETING (Hlavní doména) ---
   // Seznam cest, které patří výhradně do OS a nesmí být na marketingovém webu.
-  const protectedPaths = [
+const protectedPaths = [
     '/dashboard', '/projects', '/builder', '/klienti', 
     '/nova-faktura', '/upravit-fakturu', '/faktura', 
     '/prehled', '/rezervace', '/detail', '/settings', 
-    '/novy-web', '/web-detail', '/upravit', '/upravit-web'
+    '/novy-web', '/web-detail', '/upravit', '/upravit-web',
+    '/login', '/register' // <--- PŘIDÁNO: Login a registrace běží vždy na subdoméně
   ];
   
   const isProtected = protectedPaths.some(path => url.pathname.startsWith(path));
@@ -12152,7 +12801,18 @@ import "./.next/dev/types/routes.d.ts";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'okmxoxaxsotxkiyljcuy.supabase.co', // Rovnou přidávám i tvoji Supabase databázi!
+      }
+    ],
+  },
 };
 
 export default nextConfig;
