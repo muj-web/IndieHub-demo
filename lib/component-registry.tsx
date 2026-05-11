@@ -1,46 +1,46 @@
 import React from 'react';
 
 // HLAVIČKY
-import NavbarNeon from "@/app/components/themes/header/NavbarNeon";
-import NavbarCinematic from "@/app/components/themes/header/NavbarCinematic";
-import NavbarElegant from "@/app/components/themes/header/NavbarElegant";
-import HeaderIndustrial from "@/app/components/themes/header/HeaderIndustrial";
-import HeaderStandard from "@/app/components/blocks/header/HeaderStandard";
-import NavbarUtilitarian from "@/app/components/themes/header/NavbarUtilitarian";
-import HeaderLuxury from "@/app/components/themes/header/HeaderLuxury";
+import NavbarNeon from "@/app/components/engine/themes/header/NavbarNeon";
+import NavbarCinematic from "@/app/components/engine/themes/header/NavbarCinematic";
+import NavbarElegant from "@/app/components/engine/themes/header/NavbarElegant";
+import HeaderIndustrial from "@/app/components/engine/themes/header/HeaderIndustrial";
+import HeaderStandard from "@/app/components/engine/blocks/header/HeaderStandard";
+import NavbarUtilitarian from "@/app/components/engine/themes/header/NavbarUtilitarian";
+import HeaderLuxury from "@/app/components/engine/themes/header/HeaderLuxury";
 
 // HERO SEKCE
-import HeroCinematic from "@/app/components/themes/hero/HeroCinematic";
-import HeroNeon from "@/app/components/themes/hero/HeroNeon";
-import HeroInteractive from "@/app/components/themes/hero/HeroInteractive";
-import HeroCircle from "@/app/components/themes/hero/HeroCircle";
-import HeroIndustrial from "@/app/components/themes/hero/HeroIndustrial";
-import HeroUtilitarian from "@/app/components/themes/hero/HeroUtilitarian";
-import HeroSplit from "@/app/components/blocks/hero/HeroSplit";
-import HeroSubpage from "@/app/components/themes/hero/HeroSubpage";
-import HeroLuxury from "@/app/components/themes/hero/HeroLuxury";
+import HeroCinematic from "@/app/components/engine/themes/hero/HeroCinematic";
+import HeroNeon from "@/app/components/engine/themes/hero/HeroNeon";
+import HeroInteractive from "@/app/components/engine/themes/hero/HeroInteractive";
+import HeroCircle from "@/app/components/engine/themes/hero/HeroCircle";
+import HeroIndustrial from "@/app/components/engine/themes/hero/HeroIndustrial";
+import HeroUtilitarian from "@/app/components/engine/themes/hero/HeroUtilitarian";
+import HeroSplit from "@/app/components/engine/blocks/hero/HeroSplit";
+import HeroSubpage from "@/app/components/engine/themes/hero/HeroSubpage";
+import HeroLuxury from "@/app/components/engine/themes/hero/HeroLuxury";
 
 // SLUŽBY & OBSAH
-import ServicesBentoGrid from "@/app/components/themes/services/ServicesBentoGrid";
-import ServicesUtilitarian from "@/app/components/themes/services/ServicesUtilitarian";
-import ServicesGrid from '@/app/components/themes/services/ServicesGrid';
-import ServicesInteractive from "@/app/components/themes/services/ServicesInteractive";
-import TextMediaStandard from "@/app/components/blocks/content/TextMediaStandard";
-import ServicesStandard from "@/app/components/blocks/services/ServicesStandard";
+import ServicesBentoGrid from "@/app/components/engine/themes/services/ServicesBentoGrid";
+import ServicesUtilitarian from "@/app/components/engine/themes/services/ServicesUtilitarian";
+import ServicesGrid from '@/app/components/engine/themes/services/ServicesGrid';
+import ServicesInteractive from "@/app/components/engine/themes/services/ServicesInteractive";
+import TextMediaStandard from "@/app/components/engine/blocks/content/TextMediaStandard";
+import ServicesStandard from "@/app/components/engine/blocks/services/ServicesStandard";
 
 // REFERENCE & OSTATNÍ
-import VideoGrid from "@/app/components/themes/other/VideoGrid";
-import TestimonialsPremium from "@/app/components/themes/other/TestimonialsPremium";
-import TestimonialsStandard from "@/app/components/blocks/testimonials/TestimonialsStandard";
+import VideoGrid from "@/app/components/engine/themes/other/VideoGrid";
+import TestimonialsPremium from "@/app/components/engine/themes/other/TestimonialsPremium";
+import TestimonialsStandard from "@/app/components/engine/blocks/testimonials/TestimonialsStandard";
 
 // PATIČKY
-import FooterIndustrial from "@/app/components/themes/footer/FooterIndustrial";
-import FooterUtilitarian from "@/app/components/themes/footer/FooterUtilitarian";
-import FooterNeon from "@/app/components/themes/footer/FooterNeon";
-import FooterCinematic from "@/app/components/themes/footer/FooterCinematic";
-import FooterElegant from "@/app/components/themes/footer/FooterElegant";
-import FooterLuxury from "@/app/components/themes/footer/FooterLuxury";
-import FooterStandard from "@/app/components/blocks/footer/FooterStandard";
+import FooterIndustrial from "@/app/components/engine/themes/footer/FooterIndustrial";
+import FooterUtilitarian from "@/app/components/engine/themes/footer/FooterUtilitarian";
+import FooterNeon from "@/app/components/engine/themes/footer/FooterNeon";
+import FooterCinematic from "@/app/components/engine/themes/footer/FooterCinematic";
+import FooterElegant from "@/app/components/engine/themes/footer/FooterElegant";
+import FooterLuxury from "@/app/components/engine/themes/footer/FooterLuxury";
+import FooterStandard from "@/app/components/engine/blocks/footer/FooterStandard";
 
 export const ComponentRegistry: any = {
   // HLAVIČKY
