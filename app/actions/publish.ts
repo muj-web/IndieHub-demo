@@ -2,7 +2,7 @@
 
 // Tuto akci zavoláš po kliknutí na tlačítko "Odeslat na web"
 export async function publishToPersonalWeb(article: {
-  id: string; // Tohle je ID z databáze IndieHubu (Supabase A)
+  id: string; 
   title: string;
   slug: string;
   content_html: string;
@@ -18,7 +18,6 @@ export async function publishToPersonalWeb(article: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Tady se prokazujeme naším tajným klíčem
         'Authorization': `Bearer ${secret}`, 
       },
       body: JSON.stringify({
@@ -32,7 +31,6 @@ export async function publishToPersonalWeb(article: {
       }),
     });
 
-    // Zkontolujeme, jestli webhook na druhé straně odpověděl úspěšně (status 200-299)
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Chyba při odesílání na osobní web');

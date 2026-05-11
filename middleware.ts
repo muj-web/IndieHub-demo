@@ -5,7 +5,6 @@ export function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const hostname = req.headers.get('host') || '';
 
-  // 1. Propustíme statiku, API a soubory (aby fungovaly styly a obrázky)
   if (
     url.pathname.startsWith('/_next') || 
     url.pathname.startsWith('/api') ||
@@ -16,44 +15,37 @@ export function middleware(req: NextRequest) {
 
   const isAppSubdomain = hostname.startsWith('app.');
 
-  // --- LOGIKA PRO CHAMELEON OS (Subdoména app.) ---
-  if (isAppSubdomain) {
-    // Pokud uživatel zadá čistou subdoménu, podstrčíme mu obsah složky /dashboard
-    if (url.pathname === '/') {
-      url.pathname = '/dashboard';
+if (isAppSubdomain) {
+    // 🛑 OPRAVA: Login, Builder a Faktura mají své vlastní složky mimo /admin
+    if (url.pathname === '/login' || url.pathname.startsWith('/builder') || url.pathname.startsWith('/faktura')) {
+      return NextResponse.next();
+    }
+
+    // Pokud adresa ještě nezačíná na /admin, podstrčíme ji tam
+    if (!url.pathname.startsWith('/admin')) {
+      url.pathname = `/admin${url.pathname === '/' ? '' : url.pathname}`;
       return NextResponse.rewrite(url);
     }
-    // Všechny ostatní cesty na subdoméně (např. /builder, /klienti) propustíme
     return NextResponse.next();
   }
 
-  // --- LOGIKA PRO MARKETING (Hlavní doména) ---
-  // Seznam cest, které patří výhradně do OS a nesmí být na marketingovém webu.
-const protectedPaths = [
-    '/dashboard', '/projects', '/builder', '/klienti', 
-    '/nova-faktura', '/upravit-fakturu', '/faktura', 
-    '/prehled', '/rezervace', '/detail', '/settings', 
-    '/novy-web', '/web-detail', '/upravit', '/upravit-web',
-    '/login', '/register' // <--- PŘIDÁNO: Login a registrace běží vždy na subdoméně
+  // Ochrana na hlavní doméně (Přidán i /builder, aby přesměroval na app. doménu)
+  const protectedPaths = [
+    '/admin', '/klienti', '/nova-faktura', '/upravit-fakturu', 
+    '/faktura', '/prehled', '/detail', '/settings', 
+    '/novy-web', '/web-detail', '/upravit', '/upravit-web', '/clanky', '/builder'
   ];
   
   const isProtected = protectedPaths.some(path => url.pathname.startsWith(path));
 
-  // Pokud jde někdo na chráněnou cestu přes hlavní doménu, přesměrujeme ho na subdoménu.
-  if (isProtected || url.pathname === '/admin') {
+  if (isProtected) {
     const newUrl = req.nextUrl.clone();
     const baseHost = hostname.replace('www.', '');
     newUrl.host = `app.${baseHost}`;
-    
-    // Pokud chtěl na /admin nebo /dashboard, hodíme ho na root subdomény
-    if (url.pathname === '/admin' || url.pathname === '/dashboard') {
-       newUrl.pathname = '/'; 
-    }
-
+    if (url.pathname === '/admin') newUrl.pathname = '/'; 
     return NextResponse.redirect(newUrl);
   }
 
-  // Vše ostatní na hlavní doméně (hlavně '/') propustíme pro marketing
   return NextResponse.next();
 }
 

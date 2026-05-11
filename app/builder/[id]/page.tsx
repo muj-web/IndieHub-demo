@@ -1,16 +1,16 @@
 "use client";
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { 
   CheckCircle2, Plus, ArrowLeft, Loader2, 
   Layers, Trash2, Palette, EyeOff, Eye,
   ExternalLink, Type, Square, Layout, Rocket, 
-  AlignLeft, Maximize, Sparkles, ChevronDown, FileText
+  AlignLeft, Maximize, Sparkles, ChevronDown, FileText, Clock
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { THEME_PRESETS } from "@/lib/theme-presets";
-import BuilderSectionCard from "@/app/components/builder/BuilderSectionCard";
+import BuilderSectionCard from "@/app/components/engine/builder/BuilderSectionCard";
 
 const availableComponents = [
   // HLAVIČKY
@@ -80,11 +80,15 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const [themeToApply, setThemeToApply] = useState<string | null>(null);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'delete' });
 
+  // --- STAVY A REFERENCE PRO MĚŘENÍ ČASU ---
+  const sessionSecondsRef = useRef(0);
+  const totalTimeSpentRef = useRef(0);
+  const isTrackingRef = useRef(true);
+  const [sessionSecondsState, setSessionSecondsState] = useState(0);
+
   useEffect(() => { fetchProject(); }, [id]);
 
   async function fetchProject() {
-    // Tady jsme SMAZALI setLoading(true)! 
-    // Data se tak aktualizují neviditelně na pozadí, aniž by obrazovka problikla.
     const { data: projData, error: projError } = await supabase
       .from('projects')
       .select('*')
@@ -95,6 +99,11 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
       setProject(null);
       setLoading(false);
       return;
+    }
+
+    // Inicializace historického času z databáze
+    if (totalTimeSpentRef.current === 0 && projData.time_spent) {
+      totalTimeSpentRef.current = Number(projData.time_spent);
     }
 
     const { data: pages } = await supabase.from('project_pages').select('*').eq('project_id', id).order('order_index');
@@ -114,20 +123,67 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
     }
 
     setProject(fullProject);
-    setLoading(false); // Vypne loading obrazovku pouze při PRVNÍM načtení
+    setLoading(false);
   }
+
+  // --- AUTOMATICKÉ MĚŘENÍ ČASU ---
+  useEffect(() => {
+    if (!id) return;
+
+    const syncTime = async () => {
+      if (sessionSecondsRef.current === 0) return;
+      
+      const additionalHours = sessionSecondsRef.current / 3600;
+      const newTotal = totalTimeSpentRef.current + additionalHours;
+      
+      // Uložíme do DB asynchronně (neblokujeme UI) a s přesností na 4 desetinná místa
+      supabase.from('projects').update({ time_spent: Number(newTotal.toFixed(4)) }).eq('id', id).then();
+      
+      totalTimeSpentRef.current = newTotal;
+      sessionSecondsRef.current = 0;
+      setSessionSecondsState(0);
+    };
+
+    // Detekce překliknutí do jiné záložky (Pauza)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        isTrackingRef.current = false;
+        syncTime(); // Bezpečně uložíme čas, když uživatel odejde jinam
+      } else {
+        isTrackingRef.current = true;
+      }
+    };
+
+    window.addEventListener('beforeunload', syncTime);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const interval = setInterval(() => {
+      if (isTrackingRef.current) {
+        sessionSecondsRef.current += 1;
+        setSessionSecondsState(sessionSecondsRef.current);
+
+        // Automatické uložení každou minutu jako záloha proti pádu prohlížeče
+        if (sessionSecondsRef.current >= 60) {
+           syncTime();
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', syncTime);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      syncTime(); // Uloží čas při opuštění Builderu
+    };
+  }, [id]);
 
   const triggerToast = (message: string, type: 'success' | 'delete') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast(prev => ({ ...prev, show: false })), 5000);
   };
 
-  // --- OKAMŽITÁ (OPTIMISTICKÁ) ZMĚNA VZHLEDU ---
   async function updateDesignConfig(key: string, value: string) {
-    // 1. Změníme lokální stav IHNED
     setProject((prev: any) => ({ ...prev, design_config: { ...(prev?.design_config || {}), [key]: value } }));
-    
-    // 2. Pošleme do DB na pozadí
     const currentConfig = project?.design_config || {};
     await supabase.from('projects').update({ design_config: { ...currentConfig, [key]: value } }).eq('id', id);
     triggerToast("Globální styl aktualizován", "success");
@@ -150,7 +206,6 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
     if (!themeToApply) return;
     const theme = THEME_PRESETS[themeToApply];
     
-    // Okamžitá lokální změna
     setProject((prev: any) => ({ ...prev, color_palette: theme.color_palette, design_config: theme.design_config }));
     
     const { error } = await supabase.from('projects').update({ 
@@ -161,7 +216,6 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
     setThemeToApply(null);
   }
 
-  // --- OSTATNÍ FUNKCE ---
   async function createPage(e: React.FormEvent) {
     e.preventDefault();
     if (!newPageTitle.trim()) return;
@@ -208,7 +262,6 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   }
 
   async function saveSectionContentFromCard(sectionId: string, updatedContent: any) {
-    // Okamžitá úprava v lokálním poli
     setProject((prev: any) => ({
       ...prev, project_sections: prev.project_sections.map((s: any) => s.id === sectionId ? { ...s, content_data: updatedContent } : s)
     }));
@@ -275,6 +328,13 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
   const isHomePage = activePageObj?.is_homepage || false;
   const previewUrl = activePageObj && !isHomePage ? `/demo/${project?.slug}/${activePageObj.slug}` : `/demo/${project?.slug}`;
 
+  // Formátování zobrazeného času
+  const totalSeconds = Math.floor((totalTimeSpentRef.current * 3600) + sessionSecondsState);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4 md:p-8 pt-24 md:pt-32 overflow-x-hidden font-sans transition-colors duration-500 relative">
       <div className="max-w-[1600px] mx-auto w-[95%] md:w-[90%] relative z-10">
@@ -285,11 +345,23 @@ export default function ProjectBuilder({ params }: { params: Promise<{ id: strin
             <Link href="/" className="p-4 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-[1.5rem] hover:text-purple-600 transition-all shrink-0 shadow-sm">
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <div>
+            <div className="flex flex-col">
               <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-none flex flex-wrap items-center gap-2 md:gap-4 text-zinc-900 dark:text-white">
                 <span className="truncate max-w-[200px] sm:max-w-md">{project?.project_name}</span>
                 <span className="text-zinc-400 dark:text-slate-600 text-xl md:text-2xl whitespace-nowrap">/ Builder</span>
               </h1>
+              
+              {/* TIMER UI */}
+              <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                   <Clock className="w-3 h-3 text-emerald-500" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-slate-400 flex items-center gap-2">
+                  Pracovní čas: 
+                  <span className="text-emerald-600 dark:text-emerald-400 font-mono text-xs">{formattedTime}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-1" />
+                </span>
+              </div>
             </div>
           </div>
 
