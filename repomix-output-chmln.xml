@@ -1499,13 +1499,11 @@ export default function BuilderSectionCard({
     setHasChanges(false);
   }, [section.content_data]);
 
-  // --- FUNKCE PRO ZÁKLADNÍ POLÍČKA ---
   const updateContent = (key: string, value: any) => {
     setLocalContent((prev: any) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
 
-  // --- FUNKCE PRO REPEATER (Pole karet / služeb) ---
   const addRepeaterItem = (arrayName: string, subFields: ComponentField[]) => {
     const currentArray = localContent[arrayName] || [];
     const newItem: any = {};
@@ -1533,8 +1531,10 @@ export default function BuilderSectionCard({
     updateContent(arrayName, newArray);
   };
 
+  // OPRAVA TLAČÍTKA ULOŽIT
   const handleSave = () => {
     onSave(section.id, localContent);
+    setHasChanges(false); // Toto schová zelené tlačítko po uložení
   };
 
   const currentSchema = COMPONENT_SCHEMAS[section.component_type] || [];
@@ -1543,7 +1543,6 @@ export default function BuilderSectionCard({
     <motion.div layout className="w-full relative group">
       <div className="bg-white border border-zinc-200 rounded-[2rem] shadow-sm flex flex-col overflow-hidden">
         
-        {/* --- HEADER KARTY --- */}
         <div className="p-4 sm:p-6 flex flex-col md:flex-row items-center justify-between gap-4 bg-zinc-50 border-b border-zinc-200">
           <div className="flex items-center gap-4 w-full">
             <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center font-black text-zinc-400 border border-zinc-200 shrink-0">
@@ -1587,7 +1586,6 @@ export default function BuilderSectionCard({
           </div>
         </div>
 
-        {/* --- TĚLO KARTY --- */}
         <div className="bg-white flex-1 p-6">
           <div className="flex gap-6 border-b border-zinc-200 mb-6">
             <button onClick={() => setActiveTab('design')} className={`pb-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'design' ? 'border-purple-600 text-purple-600' : 'border-transparent text-zinc-400 hover:text-zinc-700'}`}>Vzhled</button>
@@ -1595,7 +1593,6 @@ export default function BuilderSectionCard({
           </div>
 
           {activeTab === 'design' ? (
-            /* ZÁLOŽKA VZHLED */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
                 <label className="text-[9px] font-bold uppercase text-zinc-500">Zarovnání</label>
@@ -1614,7 +1611,6 @@ export default function BuilderSectionCard({
                 <input type="text" placeholder="https://..." value={localContent.bg_src || ''} onChange={(e) => updateContent('bg_src', e.target.value)} className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs outline-none w-full focus:border-purple-600 font-mono" />
               </div>
 
-              {/* --- NOVÉ: DYNAMICKÁ POLE ZE SCHÉMATU PRO VZHLED --- */}
               {currentSchema.filter((f) => f.tab === 'design').map((field) => {
                 if (field.type === 'select' && field.options) {
                   return (
@@ -1637,14 +1633,12 @@ export default function BuilderSectionCard({
               })}
             </div>
           ) : (
-            /* ZÁLOŽKA OBSAH */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {currentSchema.length === 0 ? (
                 <div className="md:col-span-2 p-8 text-center border-2 border-dashed rounded-2xl text-zinc-400 text-sm font-mono">
                   Schema "{section.component_type}" zatím nebylo definováno v component-schemas.ts
                 </div>
               ) : (
-                /* TADY JE PŘIDANÝ TEN FILTER, ABY SE V TEXTECH NEUKAZOVAL VZHLED */
                 currentSchema.filter((f) => f.tab !== 'design').map((field) => {
                   
                   if (field.type === 'string') {
@@ -8295,7 +8289,6 @@ export default function DashboardPage() {
 </file>
 
 <file path="app/demo/[project_slug]/[[...page_slug]]/page.tsx">
-// src/app/demo/[project_slug]/[[...page_slug]]/page.tsx
 import { supabase } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import { ComponentRegistry } from "@/lib/component-registry";
@@ -8308,19 +8301,22 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
   const projectSlug = resolvedParams.project_slug;
   const pageSlug = resolvedParams.page_slug ? resolvedParams.page_slug[0] : null;
 
-  // OPRAVA 1: Načteme z DB i color_palette a design_config
+  // OPRAVA: Ptáme se správné tabulky 'projects'
   const { data: project } = await supabase
-    .from('client_projects')
+    .from('projects')
     .select('id, client_name, color_palette, design_config, is_wireframe')
     .eq('slug', projectSlug)
     .single();
     
   if (!project) notFound();
 
-  // OPRAVA 2: Připravíme si proměnné pro komponenty
   const isWireframe = project.is_wireframe;
   const activeColorPalette = isWireframe ? { bg: '#ffffff', text: '#000000', accent: '#000000', surface: '#f4f4f5' } : project.color_palette;
-  const activeDesignConfig = isWireframe ? { radius: '0px', font_heading: 'Inter' } : project.design_config;
+  
+  // Bezpečný merge design konfigurace
+  const activeDesignConfig = isWireframe 
+    ? { ...(project.design_config || {}), radius: '0px', font_heading: 'Inter' } 
+    : (project.design_config || {});
 
   const { data: allPages } = await supabase.from('project_pages').select('*').eq('project_id', project.id).order('order_index');
   
@@ -8360,7 +8356,6 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
             projectName={project.client_name}
             allPages={allPages || []}
             projectSlug={projectSlug}
-            // OPRAVA 3: Pošleme barvy a design přímo do komponent, aby nespouštěly svůj fialový fallback
             colorPalette={activeColorPalette}
             designConfig={activeDesignConfig}
           />
@@ -11324,12 +11319,30 @@ body {
   color: var(--foreground);
   transition: background-color 0.5s ease, color 0.5s ease; /* Plynulý přechod */
 }
+
+/* --- WIREFRAME MÓD (Neprůstřelná verze) --- */
+.wireframe-mode img,
+.wireframe-mode video {
+  filter: grayscale(100%) contrast(0.2) brightness(1.1) !important;
+  opacity: 0.4 !important;
+  pointer-events: none !important;
+}
+
+.wireframe-mode [style*="background-image"] {
+  filter: grayscale(100%) contrast(0.2) brightness(1.1) !important;
+  opacity: 0.4 !important;
+}
 </file>
 
 <file path="app/layout.tsx">
 import type { Metadata } from "next";
 import { Jost, Playfair_Display } from "next/font/google";
 import "./globals.css";
+
+// Tady vracíme zpět naše chytré obaly!
+import AuthGuard from "@/lib/components/AuthGuard";
+import { ThemeProvider } from "@/lib/components/ThemeProvider";
+import { ConfirmProvider } from "@/lib/components/ConfirmProvider";
 
 const fontJost = Jost({ 
   subsets: ["latin", "latin-ext"],
@@ -11344,8 +11357,8 @@ const fontPlayfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Digitální tvůrce",
-  description: "Moderní weby a SEO, které fungují",
+  title: "CHMLN Engine",
+  description: "Interní CRM, web builder a fakturační systém",
 };
 
 export default function RootLayout({
@@ -11354,7 +11367,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="cs" className="scroll-smooth">
+    <html lang="cs" className="scroll-smooth" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -11364,7 +11377,13 @@ export default function RootLayout({
         className={`${fontJost.variable} ${fontPlayfair.variable} font-sans antialiased min-h-screen selection:bg-dt-accent/40 selection:text-white`}
         suppressHydrationWarning
       >   
-        {children}
+        <ThemeProvider>
+          <ConfirmProvider>
+            <AuthGuard>
+              {children}
+            </AuthGuard>
+          </ConfirmProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
@@ -12820,7 +12839,7 @@ export default nextConfig;
 
 <file path="package.json">
 {
-  "name": "crm-system",
+  "name": "CHMLN Engine",
   "version": "0.1.0",
   "private": true,
   "scripts": {

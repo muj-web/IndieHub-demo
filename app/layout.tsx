@@ -20,8 +20,8 @@ const fontPlayfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Digitální tvůrce",
-  description: "Moderní weby a SEO, které fungují",
+  title: "CHMLN Engine",
+  description: "Interní CRM, web builder a fakturační systém",
 };
 
 export default function RootLayout({
