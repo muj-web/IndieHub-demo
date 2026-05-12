@@ -1,4 +1,5 @@
-import { supabase } from "@/lib/supabase";
+// 1. ZMĚNA IMPORTU: Místo 'supabase' importujeme 'getServiceSupabase'
+import { getServiceSupabase } from "@/lib/supabase"; 
 import { notFound } from "next/navigation";
 
 export default async function ProjectLayout({
@@ -11,8 +12,11 @@ export default async function ProjectLayout({
   const resolvedParams = await params;
   const projectSlug = resolvedParams.project_slug;
 
-  // Hledáme projekt v naší nové tabulce 'projects'
-  const { data: project } = await supabase
+  // 2. INICIALIZACE ADMIN KLIENTA
+  const supabaseAdmin = getServiceSupabase();
+
+  // 3. POUŽITÍ ADMIN KLIENTA
+  const { data: project } = await supabaseAdmin
     .from('projects')
     .select('*')
     .eq('slug', projectSlug)

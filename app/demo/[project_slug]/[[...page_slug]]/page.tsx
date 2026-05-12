@@ -1,4 +1,5 @@
-import { supabase } from "@/lib/supabase";
+// 1. ZMĚNA IMPORTU
+import { getServiceSupabase } from "@/lib/supabase"; 
 import { notFound } from "next/navigation";
 import { ComponentRegistry } from "@/lib/component-registry";
 
@@ -10,8 +11,10 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
   const projectSlug = resolvedParams.project_slug;
   const pageSlug = resolvedParams.page_slug ? resolvedParams.page_slug[0] : null;
 
-  // OPRAVA: Ptáme se správné tabulky 'projects'
-  const { data: project } = await supabase
+  // 2. INICIALIZACE ADMIN KLIENTA
+  const supabaseAdmin = getServiceSupabase();
+
+  const { data: project } = await supabaseAdmin // <-- ZMĚNA
     .from('projects')
     .select('id, client_name, color_palette, design_config, is_wireframe')
     .eq('slug', projectSlug)
@@ -22,23 +25,25 @@ export default async function DynamicProjectPage({ params }: { params: Promise<{
   const isWireframe = project.is_wireframe;
   const activeColorPalette = isWireframe ? { bg: '#ffffff', text: '#000000', accent: '#000000', surface: '#f4f4f5' } : project.color_palette;
   
-  // Bezpečný merge design konfigurace
   const activeDesignConfig = isWireframe 
     ? { ...(project.design_config || {}), radius: '0px', font_heading: 'Inter' } 
     : (project.design_config || {});
 
-  const { data: allPages } = await supabase.from('project_pages').select('*').eq('project_id', project.id).order('order_index');
+  // ZMĚNA ZDE
+  const { data: allPages } = await supabaseAdmin.from('project_pages').select('*').eq('project_id', project.id).order('order_index');
   
   const homePage = allPages?.find(p => p.is_homepage);
   const currentPage = pageSlug ? allPages?.find(p => p.slug === pageSlug) : homePage;
   
   if (!currentPage) notFound();
 
-  const { data: currentSections } = await supabase.from('project_sections').select('*').eq('page_id', currentPage.id).order('order_index');
+  // ZMĚNA ZDE
+  const { data: currentSections } = await supabaseAdmin.from('project_sections').select('*').eq('page_id', currentPage.id).order('order_index');
   let finalSections = currentSections || [];
 
   if (!currentPage.is_homepage && homePage) {
-    const { data: homeSections } = await supabase.from('project_sections').select('*').eq('page_id', homePage.id).order('order_index');
+    // A POSLEDNÍ ZMĚNA ZDE
+    const { data: homeSections } = await supabaseAdmin.from('project_sections').select('*').eq('page_id', homePage.id).order('order_index');
     if (homeSections) {
       const headers = homeSections.filter(s => s.component_type.startsWith('header-'));
       const footers = homeSections.filter(s => s.component_type.startsWith('footer-'));

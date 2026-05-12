@@ -15,9 +15,14 @@ export function middleware(req: NextRequest) {
 
   const isAppSubdomain = hostname.startsWith('app.');
 
-if (isAppSubdomain) {
-    // 🛑 OPRAVA: Login, Builder a Faktura mají své vlastní složky mimo /admin
-    if (url.pathname === '/login' || url.pathname.startsWith('/builder') || url.pathname.startsWith('/faktura')) {
+  if (isAppSubdomain) {
+    // 🛑 OPRAVA: Přidáno url.pathname.startsWith('/demo')
+    if (
+      url.pathname === '/login' || 
+      url.pathname.startsWith('/builder') || 
+      url.pathname.startsWith('/faktura') ||
+      url.pathname.startsWith('/demo')
+    ) {
       return NextResponse.next();
     }
 
@@ -29,7 +34,7 @@ if (isAppSubdomain) {
     return NextResponse.next();
   }
 
-  // Ochrana na hlavní doméně (Přidán i /builder, aby přesměroval na app. doménu)
+  // Ochrana na hlavní doméně (bez změn)
   const protectedPaths = [
     '/admin', '/klienti', '/nova-faktura', '/upravit-fakturu', 
     '/faktura', '/prehled', '/detail', '/settings', 
