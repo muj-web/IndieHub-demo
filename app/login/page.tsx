@@ -39,7 +39,7 @@ export default function LoginPage() {
              <div className="w-16 h-16 bg-purple-50 dark:bg-purple-500/10 rounded-2xl flex items-center justify-center mb-6 border border-purple-100 dark:border-purple-500/20">
                 <Lock className="w-8 h-8 text-purple-600 dark:text-purple-400" />
              </div>
-             <h1 className="font-serif text-3xl text-zinc-900 dark:text-white text-center">Admin Přihlášení</h1>
+             <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white text-center">Admin Přihlášení</h1>
              <p className="text-zinc-500 dark:text-slate-400 text-sm mt-2">Vítejte zpět v Chameleon OS</p>
           </div>
 
